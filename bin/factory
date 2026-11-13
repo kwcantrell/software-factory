@@ -393,6 +393,20 @@ def cmd_merge(root, a):
     print(f"{job['id']} merged into {current}")
 
 
+def cmd_rework(root, a):
+    with editing(root, a.job) as job:
+        require_stage(job, "ship")
+        reason = " ".join(a.reason).strip()
+        if not reason:
+            raise Refused("say what to change: factory rework <job> <what to change>")
+        n = len(job["rounds"])
+        note = root / "jobs" / job["id"] / f"rework-{n}.md"
+        note.write_text(f"# Rework requested after round {n}\n\nRequested by a human at {now()}.\n\n{reason}\n")
+        job["status"], job["needs_human"] = "active", None
+        move(job, "build", f"rework requested by a human after round {n}: {reason}")
+    print(f"{job['id']} -> build (rework; request in {note.name})")
+
+
 def cmd_close(root, a):
     with editing(root, a.job) as job:
         if job["stage"] == "done":
@@ -524,6 +538,8 @@ def main():
         (["--reset"], {"action": "store_true", "help": "also reset proof attempts and review rounds"}))
     add("merge", cmd_merge, "human gate: merge an approved job and clean up", JOB,
         (["--into-current"], {"action": "store_true"}))
+    add("rework", cmd_rework, "human: send an approved job back to build", JOB,
+        (["reason"], {"nargs": "+", "help": "what to change; saved as rework-<round>.md"}))
     add("close", cmd_close, "human: abandon a job without merging", JOB, (["reason"], {"nargs": "*"}))
     add("config", cmd_config, "print the effective configuration (factory.json over defaults)")
     add("note", cmd_note, "set the job's activity line", JOB, (["text"], {"nargs": "+"}))

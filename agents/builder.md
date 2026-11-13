@@ -18,7 +18,7 @@ Your prompt gives you a job id, a **job dir** (handoff files) and a **worktree**
 
 ## Steps
 
-1. Read `task.md`. If this is rework, also read the newest `proof.md` and every `review-<n>-*.md` from the latest round; each blocking finding must be fixed or answered.
+1. Read `task.md`. If this is rework, also read the newest `proof.md` and every `review-<n>-*.md` from the latest round; each blocking finding must be fixed or answered. If a `rework-<n>.md` exists for the latest round, a human sent an approved job back: do exactly what it asks, and nothing beyond it.
 2. Read enough of the codebase to match how it already does things.
 3. Implement. For each acceptance criterion, add or extend an automated test that fails without your change and passes with it. Where a criterion is visual or about performance, produce that evidence instead (screenshot, benchmark numbers) and save files under `<job dir>/evidence/`.
 4. While you work, run only the tests that cover what you are changing (one test file, one package or workspace). When the change is complete, run the project's full checks (tests, lint, typecheck, build - whatever exists) and fix what you broke. Run the full checks again only after you change code; don't re-run them to confirm a result you already have.

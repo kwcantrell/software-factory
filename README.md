@@ -72,7 +72,8 @@ Prompts ask; the `factory` CLI (`bin/factory`, on Claude's PATH while the plugin
 - `proof pass|fail` is recorded by the verifier, not the builder or supervisor.
 - `verdict` refuses without the reviewer's written review; a round with any `changes` sends the job back to build, then through proof again.
 - Three failed proofs or three review rounds without approval (configurable) flag the job **needs-human** and stop it.
-- `merge` only works from `ship`. A `PreToolUse` hook turns any `factory merge` or `factory approve` command into a permission prompt, so an agent cannot merge a job or approve a spec without a person saying yes.
+- `rework` (human) sends a job in `ship` back to `build` with a request saved as `rework-<round>.md`; the builder does what it asks, and the job is proven and reviewed again in a new round.
+- `merge` only works from `ship`. A `PreToolUse` hook turns any `factory merge`, `factory approve` or `factory rework` command into a permission prompt, so an agent cannot merge a job, approve a spec or reopen an approved job without a person saying yes.
 
 Run `factory --help` for every command. `factory status` is the text version of the dashboard, and `factory stats` prints the line metrics (add `--json` to track them over time).
 
