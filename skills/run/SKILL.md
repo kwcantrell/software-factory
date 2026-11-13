@@ -39,6 +39,13 @@ Otherwise, or once the spec is approved, run `factory start <id>` - it checks th
 
 Launch the `factory:builder` agent with: the job id, the job dir, the worktree path, and whether this is a first build or rework (and of which round). Nothing else - the files carry the context.
 
+Pick the builder's model from `task.md` and pass it as the Agent tool's `model`:
+
+- `sonnet` for mechanical work: dependency or toolchain upgrades, CI and config changes, docs, renames, flaky-test fixes, and changes that follow a pattern already in the codebase.
+- `opus` for everything else, and always for auth, secrets, PII, security boundaries, the frozen HTTP/WS contract, new features, design or ADR work, and data migrations.
+
+When unsure, use `opus`. Rework keeps the model of the first build, except that a `sonnet` job moves to `opus` from its second rework round, or when a reviewer finds a correctness or security problem. Record it with `factory note <id> "builder model: <model> - <why>"`.
+
 When it returns, run `factory built <id>`. If refused (uncommitted changes, no commits, no `build.md`), send the builder back to fix exactly that.
 
 ## 3. Proof
