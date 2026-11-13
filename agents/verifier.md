@@ -20,7 +20,7 @@ Your prompt gives you a job id, a **job dir** and a **worktree**.
 ## Steps
 
 1. Read `task.md`, then `build.md`.
-2. Run the project's full checks from a clean state. A red suite is a fail, whoever broke it.
+2. Run the project's full checks from a clean state. A red suite is a fail, whoever broke it. Start them with the Bash tool's `run_in_background: true` and carry on with step 3 while they run; read the result when the completion notice arrives. Don't poll in a `sleep` loop. If a test fails, re-run that test on its own once: if it then passes, record it as flaky in `proof.md` (it still fails the job's full checks).
 3. For **each** acceptance criterion, verify it yourself:
    - Behavior: exercise it - run the code, call the endpoint, drive the CLI. Try the edge the builder probably skipped (empty input, bad input, the boundary).
    - Tests: confirm the builder's tests really test the criterion, and that they fail without the change: check out the base commit in a temporary worktree outside the job worktree (`git worktree add --detach <tmp> <base>`), copy the new tests in, watch them fail, then remove it. A test that cannot fail proves nothing.

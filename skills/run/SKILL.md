@@ -76,6 +76,8 @@ Then stop. Tell the user the job is ready and that `/factory:ship <id>` merges i
 
 Jobs are isolated in their own worktrees, so run them concurrently: launch agents for different jobs in the same message and advance each job as its agent returns. Do not hold a finished job back waiting for a slow one.
 
+Wait for agents and long commands through their completion notices. Never poll `factory status`, job files or a process in a `sleep` loop: each poll is another model call, and the notice arrives anyway.
+
 ## When to escalate
 
 Run `factory human <id> "<reason>"` and stop work on that job when: the task turns out to be contradictory or impossible, a builder reports it cannot meet a criterion as written, the same finding survives two rework attempts, or continuing would need a decision that belongs to the user (scope, a new dependency, a destructive migration). A clear question to the human beats a fourth attempt.
