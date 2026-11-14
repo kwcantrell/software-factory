@@ -13,7 +13,7 @@ The user invoked this themselves; it is the factory's human gate. If no job id w
 If the arguments say `reject`, run `factory close <id> <reason>` and report that the branch was kept. Otherwise:
 
 1. Run `factory status <id>`. If the job is not in stage `ship`, say where it is and stop.
-2. Show the user what they are approving, briefly: the summary and risks from `ship.md` in the job dir, and `git -C <worktree> diff --stat <base>...HEAD`. Point out anything `ship.md` flags for a manual look. Do not pad it.
+2. Show the user what they are approving, briefly: the summary and risks from `ship.md` in the job dir, and `git -C <worktree> diff --stat <base>...HEAD`. Point out anything `ship.md` flags for a manual look, and the open follow-ups (`factory followup list <id>`); they stay open after the merge. Do not pad it.
 3. Run `factory merge <id>`. Claude Code will ask the user to confirm this command; that prompt is the gate, so do not try to avoid it.
 4. Report the result. If the merge was refused (dirty checkout, wrong branch) relay the reason and what to do. If it conflicted, the job is flagged needs-human and nothing was merged; offer to send it back through `/factory:run <id>` after a `factory resume <id>` so a builder can rebase.
 

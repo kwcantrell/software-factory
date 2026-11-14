@@ -216,7 +216,7 @@ def cmd_new(root, a):
                "needs_human": None, "activity": "", "spec": None, "spec_sha": None,
                "branch": None, "base": None,
                "base_branch": None, "worktree": None, "proof_attempts": 0,
-               "rounds": [], "created": now(), "history": []}
+               "rounds": [], "followups": [], "created": now(), "history": []}
         log(job, "created")
         save(root, job)
     print(f"{job_id}\njob dir: {root / 'jobs' / job_id}\nnext: write task.md there, then `factory start {job_id}`")
@@ -431,6 +431,49 @@ def cmd_note(root, a):
         log(job, " ".join(a.text))
 
 
+def cmd_followup_add(root, a):
+    text = " ".join(a.text).strip()
+    if not text:
+        raise Refused("say what the follow-up is: factory followup add <job> --by <who> <text>")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", a.by):
+        raise Refused("--by must be a lowercase name like builder, verifier, security or human")
+    with editing(root, a.job) as job:
+        items = job.setdefault("followups", [])
+        n = max((f["n"] for f in items), default=0) + 1
+        items.append({"n": n, "text": text, "by": a.by, "stage": job["stage"], "at": now(),
+                      "status": "open", "resolution": None, "resolved_at": None})
+        job["history"].append({"at": now(), "stage": job["stage"], "event": f"follow-up {n} added by {a.by}"})
+    print(f"{job['id']}: follow-up {n} recorded")
+
+
+def cmd_followup_resolve(root, a):
+    with editing(root, a.job) as job:
+        item = next((f for f in job.get("followups", []) if f["n"] == a.n), None)
+        if item is None:
+            raise Refused(f"{job['id']} has no follow-up {a.n}")
+        if item["status"] != "open":
+            raise Refused(f"follow-up {a.n} is already {item['status']}")
+        status = "done" if a.action == "done" else "dropped"
+        item.update(status=status, resolution=" ".join(a.note).strip() or None, resolved_at=now())
+        job["history"].append({"at": now(), "stage": job["stage"], "event": f"follow-up {a.n} {status}"})
+    print(f"{job['id']}: follow-up {a.n} {status}")
+
+
+def cmd_followup_list(root, a):
+    ids = [resolve(root, a.job)] if a.job else sorted(
+        p.name for p in (root / "jobs").iterdir() if (p / "job.json").exists())
+    rows = [dict(f, job=i) for i in ids for f in load(root, i).get("followups", [])
+            if a.all or f["status"] == "open"]
+    if a.json:
+        print(json.dumps(rows, indent=2))
+        return
+    if not rows:
+        print("no follow-ups" if a.all else "no open follow-ups")
+    for f in rows:
+        mark = "" if f["status"] == "open" else f"  [{f['status']}" + (f": {f['resolution']}]" if f["resolution"] else "]")
+        print(f"{f['job']} #{f['n']} ({f['by']}, {f['stage']}){mark}\n  {f['text']}")
+
+
 def cmd_path(root, a):
     job = load(root, resolve(root, a.job))
     print(job["worktree"] or "" if a.worktree else root / "jobs" / job["id"])
@@ -452,9 +495,10 @@ def cmd_status(root, a):
                                          for v in r["reviewers"].values())) for r in j["rounds"])
         print(f"{j['id']:<46} {j['stage']:<7} {j['status']:<11} {rounds}{flag}")
         if a.job:
+            open_fu = sum(f["status"] == "open" for f in j.get("followups", []))
             print(f"  title:    {j['title']}\n  job dir:  {root / 'jobs' / j['id']}\n"
                   f"  worktree: {j['worktree']}\n  branch:   {j['branch']}  base: {j['base']}\n"
-                  f"  activity: {j['activity']}")
+                  f"  activity: {j['activity']}\n  follow-ups: {open_fu} open (factory followup list {j['id']})")
 
 
 def stats(jobs):
@@ -543,6 +587,25 @@ def main():
     add("close", cmd_close, "human: abandon a job without merging", JOB, (["reason"], {"nargs": "*"}))
     add("config", cmd_config, "print the effective configuration (factory.json over defaults)")
     add("note", cmd_note, "set the job's activity line", JOB, (["text"], {"nargs": "+"}))
+    fu = sub.add_parser("followup", help="record, list and resolve follow-ups (later work a job turned up)")
+    fsub = fu.add_subparsers(dest="action", required=True)
+    sp = fsub.add_parser("add", help="record a follow-up on a job, in any stage")
+    sp.add_argument(*JOB[0], **JOB[1])
+    sp.add_argument("--by", required=True, help="who raised it: builder, verifier, a reviewer name, supervisor, human")
+    sp.add_argument("text", nargs="+")
+    sp.set_defaults(fn=cmd_followup_add)
+    sp = fsub.add_parser("list", help="open follow-ups, for one job or all jobs")
+    sp.add_argument("job", nargs="?", help="job id, number or unique prefix")
+    sp.add_argument("--all", action="store_true", help="include done and dropped ones")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(fn=cmd_followup_list)
+    for action, help in (("done", "mark a follow-up done (say how, e.g. 'job 047')"),
+                         ("drop", "drop a follow-up that is no longer worth doing (say why)")):
+        sp = fsub.add_parser(action, help=help)
+        sp.add_argument(*JOB[0], **JOB[1])
+        sp.add_argument("n", type=int, help="the follow-up's number within the job")
+        sp.add_argument("note", nargs="*")
+        sp.set_defaults(fn=cmd_followup_resolve)
     add("path", cmd_path, "print the job dir (or --worktree)", JOB,
         (["--worktree"], {"action": "store_true"}))
     add("status", cmd_status, "list jobs, or show one", (["job"], {"nargs": "?"}),

@@ -30,5 +30,6 @@ Your prompt gives you a job id, a **job dir** (handoff files) and a **worktree**
    - **Results** - the output you actually got (trimmed), not a description of it.
    - **Known gaps** - anything unfinished, risky, or assumed. Say it here; it will be found anyway.
    - On rework, append **Round N response**: each finding and what you did about it.
+7. A **follow-up** is later work this job turned up but should not do itself: a risk, a loose end, or a bug nearby that is outside the task's scope. Record each one with `factory followup add <job id> --by builder "<text>"`: one self-contained paragraph saying what, where (file:line), why it matters and the likely fix, so it can become a job without anyone re-reading this one. Run `factory followup list <job id>` first and skip any already recorded. Something a criterion needs is not a follow-up: build it, or stop and say so.
 
-Your final message is a short report: commits made, checks run and their result, and any gap. Do not run `factory` stage commands; the supervisor moves the job.
+Your final message is a short report: commits made, checks run and their result, and any gap. Do not run `factory` stage commands; the supervisor moves the job. `factory followup` is the one `factory` command you use.

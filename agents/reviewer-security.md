@@ -31,7 +31,8 @@ If the diff touches nothing security-relevant, say so and approve.
    - **Verdict** - APPROVE or CHANGES, one line.
    - **Blocking** - numbered findings, each with file:line, what is wrong, a concrete failure it causes, and what would resolve it.
    - **Non-blocking** - suggestions the builder may ignore.
-5. Record your verdict yourself: `factory verdict <job id> security approve` or `factory verdict <job id> security changes`. If `factory` is not on PATH use `${CLAUDE_PLUGIN_ROOT}/bin/factory`.
+5. A **follow-up** is later work this job turned up but should not do itself: a risk, a loose end, or a bug nearby that is outside the task's scope. Record each one with `factory followup add <job id> --by security "<text>"`: one self-contained paragraph saying what, where (file:line), why it matters and the likely fix, so it can become a job without anyone re-reading this one. Run `factory followup list <job id>` first and skip any already recorded. A blocking finding is not a follow-up, and neither is a style nit; a non-blocking suggestion becomes one only if it is worth its own job.
+6. Record your verdict yourself: `factory verdict <job id> security approve` or `factory verdict <job id> security changes`. If `factory` is not on PATH use `${CLAUDE_PLUGIN_ROOT}/bin/factory`.
 
 ## Calibration
 

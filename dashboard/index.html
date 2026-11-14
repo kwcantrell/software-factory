@@ -130,11 +130,49 @@
   .hist li { display: grid; grid-template-columns: 132px 58px 1fr; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--line); }
   .hist time, .hist .st { color: var(--muted); font: 12px var(--mono); }
   .note { color: var(--muted); }
+
+  .views { display: flex; gap: 2px; background: color-mix(in srgb, var(--ink) 6%, transparent); border-radius: 8px; padding: 2px; }
+  .views button { border: 0; background: none; font: 12.5px var(--sans); color: var(--muted); padding: 3px 10px;
+                  border-radius: 6px; cursor: pointer; display: flex; gap: 6px; align-items: center; }
+  .views button:hover { color: var(--ink); }
+  .views button.on { background: var(--panel); color: var(--ink); font-weight: 550; box-shadow: 0 0 0 1px var(--line); }
+  .views button:focus-visible, .fu-job:focus-visible, .seg button:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+  .views .n { font-variant-numeric: tabular-nums; color: var(--faint); font-weight: 500; }
+  .card .foot { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .card .foot .age { margin-top: 0; }
+  .fu-badge { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; }
+
+  .fu-page { max-width: 860px; margin: 0 auto; padding: 4px 8px 40px; }
+  .fu-bar { display: flex; align-items: center; gap: 12px; margin: 4px 0 16px; color: var(--muted); font-size: 13px; }
+  .seg { display: flex; gap: 2px; margin-left: auto; }
+  .seg button { border: 1px solid var(--line); background: var(--panel); color: var(--muted); font: 12px var(--sans);
+                padding: 2px 10px; border-radius: 6px; cursor: pointer; }
+  .seg button.on { color: var(--ink); border-color: var(--ink); }
+  .fu-group { margin-bottom: 22px; }
+  .fu-job { display: flex; align-items: baseline; gap: 8px; border: 0; background: none; padding: 0; margin: 0 0 8px;
+            font: 600 14px var(--sans); color: var(--ink); cursor: pointer; text-align: left; }
+  .fu-job:hover { text-decoration: underline; text-underline-offset: 2px; }
+  .fu-job .id { font: 11px var(--mono); color: var(--faint); font-weight: 400; }
+  .fu-job .stage { font-weight: 400; }
+  .fus { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+  .fu { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }
+  .fu .meta { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .fu .meta .num { font: 11px var(--mono); color: var(--faint); }
+  .fu .meta .who { color: var(--ink); font-weight: 550; }
+  .fu .md { font-size: 14px; }
+  .fu .md > :last-child { margin-bottom: 0; }
+  .fu .st { margin-left: auto; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; border-radius: 999px; padding: 1px 8px; }
+  .fu .st.open { color: var(--human); background: var(--human-bg); }
+  .fu .st.done { color: var(--ok); background: var(--ok-bg); }
+  .fu .st.dropped { color: var(--muted); border: 1px solid var(--line); }
+  .fu.closed .md { color: var(--muted); }
+  .fu .res { margin-top: 6px; font-size: 12.5px; color: var(--muted); }
 </style>
 </head>
 <body>
 <header class="top">
   <h1>Factory</h1>
+  <nav class="views" id="views" aria-label="View"></nav>
   <span class="counts" id="counts"></span>
   <span class="stats" id="stats"></span>
   <span class="live" id="live"><i></i><span>connecting</span></span>
@@ -155,6 +193,7 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 let jobs = [], boardSig = '', firstLoad = true;
+let page = new URLSearchParams(location.search).has('followups') ? 'followups' : 'board', fuFilter = 'open';
 const seenVerdicts = new Set();
 const view = { id: null, file: null, files: [], text: null, headSig: '', tabSig: '' };
 
@@ -183,6 +222,20 @@ const ago = iso => {
   return s < 60 ? 'just now' : s < 3600 ? Math.floor(s / 60) + 'm ago' : s < 86400 ? Math.floor(s / 3600) + 'h ago' : Math.floor(s / 86400) + 'd ago';
 };
 const isHuman = j => j.status === 'needs-human';
+const followups = j => Array.isArray(j.followups) ? j.followups : [];
+const openFu = j => followups(j).filter(f => f.status === 'open').length;
+const when = iso => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+// One follow-up. Its text is markdown written by an agent or a human; md() escapes it.
+function fuHtml(j, f) {
+  const res = f.status !== 'open'
+    ? `<div class="res">${f.status === 'done' ? 'Done' : 'Dropped'}${f.resolved_at ? ' ' + esc(when(f.resolved_at)) : ''}${f.resolution ? ': ' + esc(f.resolution) : ''}</div>` : '';
+  return `<li class="fu${f.status === 'open' ? '' : ' closed'}">
+    <div class="meta"><span class="num">#${esc(f.n)}</span><span class="who">${esc(f.by)}</span>
+      <span>during ${esc(f.stage)}</span><time>${esc(when(f.at))}</time><span class="st ${esc(f.status)}">${esc(f.status)}</span></div>
+    <div class="md">${md(String(f.text || ''), jobBase(j.id))}</div>${res}</li>`;
+}
+const fuOrder = (a, b) => (a.status !== 'open') - (b.status !== 'open') || a.n - b.n;
 
 function roundsHtml(j) {
   if (!j.rounds || !j.rounds.length) return '';
@@ -204,7 +257,7 @@ function cardHtml(j) {
   return `<button class="${cls}" data-id="${esc(j.id)}">
     <div class="id">${esc(j.id.split('-')[0])}</div>
     <div class="title">${esc(j.title)}</div>${line}${roundsHtml(j)}
-    <div class="age">${ago(j.updated)}</div></button>`;
+    <div class="foot"><span class="age">${ago(j.updated)}</span>${openFu(j) ? `<span class="fu-badge" title="Open follow-ups">${openFu(j)} follow-up${openFu(j) === 1 ? '' : 's'}</span>` : ''}</div></button>`;
 }
 
 // Line metrics, derived from job history (same definitions as `factory stats`).
@@ -228,9 +281,12 @@ function statsHtml() {
 }
 
 function renderBoard() {
-  const sig = JSON.stringify(jobs) + view.id + Math.floor(Date.now() / 30000);
+  const sig = JSON.stringify(jobs) + view.id + page + fuFilter + Math.floor(Date.now() / 30000);
   if (sig === boardSig) return;
   boardSig = sig;
+  const totalFu = jobs.reduce((n, j) => n + openFu(j), 0);
+  $('views').innerHTML = `<button data-page="board" class="${page === 'board' ? 'on' : ''}">Board</button>` +
+    `<button data-page="followups" class="${page === 'followups' ? 'on' : ''}" title="Open follow-ups across all jobs">Follow-ups<span class="n">${totalFu || ''}</span></button>`;
   const human = jobs.filter(isHuman).length, active = jobs.filter(j => j.stage !== 'done').length;
   $('counts').innerHTML = jobs.length
     ? `${active} in progress` + (human ? ` &nbsp;<span class="pill-human">${human} need${human === 1 ? 's' : ''} you</span>` : '')
@@ -241,6 +297,7 @@ function renderBoard() {
     $('main').innerHTML = `<div class="empty"><p>No jobs yet.</p><p>Run <code>/factory:run &lt;request&gt;</code> in Claude Code and jobs will appear here as they move through the line.</p></div>`;
     return;
   }
+  if (page === 'followups') { $('main').innerHTML = followupsPage(); return; }
   const scroll = [...document.querySelectorAll('.cards')].map(c => c.scrollTop);
   $('main').innerHTML = '<div class="board">' + STAGES.map(stage => {
     const col = jobs.filter(j => j.stage === stage).sort((a, b) =>
@@ -248,6 +305,27 @@ function renderBoard() {
     return `<section class="col"><h2>${stage}<span>${col.length || ''}</span></h2><div class="cards">${col.map(cardHtml).join('')}</div></section>`;
   }).join('') + '</div>';
   document.querySelectorAll('.cards').forEach((c, i) => c.scrollTop = scroll[i] || 0);
+}
+
+// Every job's follow-ups in one list, newest job first; open ones lead within a job.
+function followupsPage() {
+  const groups = jobs.map(j => [j, followups(j).filter(f => fuFilter === 'all' || f.status === 'open').sort(fuOrder)])
+    .filter(([, fs]) => fs.length).sort(([a], [b]) => b.id.localeCompare(a.id));
+  const open = jobs.reduce((n, j) => n + openFu(j), 0), all = jobs.reduce((n, j) => n + followups(j).length, 0);
+  const bar = `<div class="fu-bar"><span>${open} open across ${jobs.filter(openFu).length} job${jobs.filter(openFu).length === 1 ? '' : 's'}${all > open ? ` &middot; ${all - open} resolved` : ''}</span>
+    <span class="seg"><button data-filter="open" class="${fuFilter === 'open' ? 'on' : ''}">Open</button><button data-filter="all" class="${fuFilter === 'all' ? 'on' : ''}">All</button></span></div>`;
+  const body = groups.length ? groups.map(([j, fs]) => `<section class="fu-group">
+      <button class="fu-job" data-id="${esc(j.id)}"><span class="id">${esc(j.id.split('-')[0])}</span>${esc(j.title)}<span class="stage">${esc(j.stage)}</span></button>
+      <ul class="fus">${fs.map(f => fuHtml(j, f)).join('')}</ul></section>`).join('')
+    : `<div class="empty"><p>${all ? 'No open follow-ups.' : 'No follow-ups yet.'}</p><p>Stations record later work a job turns up with <code>factory followup add &lt;job&gt; --by &lt;who&gt; &lt;text&gt;</code>.</p></div>`;
+  return `<div class="fu-page">${bar}${body}</div>`;
+}
+
+function setPage(p) {
+  page = p;
+  const q = p === 'followups' ? '?followups' : '';
+  history.replaceState(null, '', location.pathname + q + location.hash);
+  renderBoard();
 }
 
 // ---- drawer
@@ -260,6 +338,7 @@ async function refreshDrawer() {
   if (!j) { if (view.id && !firstLoad) closeDrawer(); return; }
 
   const headSig = JSON.stringify([j.stage, j.status, j.needs_human, j.branch, j.title]);
+  const VIRTUAL = ['~followups', '~history'];
   if (headSig !== view.headSig) {
     view.headSig = headSig;
     $('dhead').innerHTML = `<div class="row"><span class="id">${esc(j.id)}</span><span class="stage">${esc(j.stage)}</span>
@@ -273,24 +352,28 @@ async function refreshDrawer() {
   if (view.id !== j.id) return;
   files.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, undefined, { numeric: true }));
   view.files = files;
-  if (view.file !== '~history' && !files.includes(view.file)) { view.file = files[files.length - 1] || '~history'; view.text = null; }
+  if (!VIRTUAL.includes(view.file) && !files.includes(view.file)) { view.file = files[files.length - 1] || '~history'; view.text = null; }
 
   const tabSig = files.join('|') + '>' + view.file;
   if (tabSig !== view.tabSig) {
     view.tabSig = tabSig;
-    $('tabs').innerHTML = [...files, '~history'].map(f =>
-      `<button class="tab${f === view.file ? ' on' : ''}" data-file="${esc(f)}">${esc(f === '~history' ? 'history' : f.replace(/\.md$/i, ''))}</button>`).join('');
+    $('tabs').innerHTML = [...files, ...VIRTUAL].map(f =>
+      `<button class="tab${f === view.file ? ' on' : ''}" data-file="${esc(f)}">${esc(f === '~history' ? 'history' : f === '~followups' ? 'follow-ups' : f.replace(/\.md$/i, ''))}</button>`).join('');
     history.replaceState(null, '', '#' + encodeURIComponent(j.id) + '/' + encodeURIComponent(view.file));
   }
 
   let text;
   if (view.file === '~history') text = JSON.stringify(j.history);
+  else if (view.file === '~followups') text = '~fu' + JSON.stringify(followups(j));
   else { try { text = await (await get(jobBase(j.id) + encodeURIComponent(view.file))).text(); } catch { text = ''; } }
   if (view.id !== j.id || text === view.text) return;
   view.text = text;
-  $('dbody').innerHTML = view.file === '~history'
+  $('dbody').innerHTML = view.file === '~followups'
+    ? (followups(j).length ? `<ul class="fus">${[...followups(j)].sort(fuOrder).map(f => fuHtml(j, f)).join('')}</ul>`
+        : '<p class="note">No follow-ups recorded for this job.</p>')
+    : view.file === '~history'
     ? '<ul class="hist">' + [...(j.history || [])].reverse().map(h =>
-        `<li><time>${esc(new Date(h.at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }))}</time><span class="st">${esc(h.stage)}</span><span>${esc(h.event)}</span></li>`).join('') + '</ul>'
+        `<li><time>${esc(when(h.at))}</time><span class="st">${esc(h.stage)}</span><span>${esc(h.event)}</span></li>`).join('') + '</ul>'
     : text.trim() ? `<article class="md">${md(text, jobBase(j.id))}</article>` : '<p class="note">This file is empty.</p>';
 }
 
@@ -310,6 +393,10 @@ function closeDrawer() {
 }
 
 document.addEventListener('click', e => {
+  const pg = e.target.closest('#views button'), filt = e.target.closest('.seg button'), fj = e.target.closest('.fu-job');
+  if (pg) return setPage(pg.dataset.page);
+  if (filt) { fuFilter = filt.dataset.filter; return renderBoard(); }
+  if (fj) return openDrawer(fj.dataset.id, '~followups');
   const card = e.target.closest('.card'), tab = e.target.closest('.tab'), link = e.target.closest('.md a');
   if (card) openDrawer(card.dataset.id);
   else if (tab) { view.file = tab.dataset.file; view.text = null; $('dbody').scrollTop = 0; refreshDrawer(); }

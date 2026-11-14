@@ -33,7 +33,8 @@ Your prompt gives you a job id, a **job dir** and a **worktree**.
    - **Checks** - commands run and their real results.
    - **Failures** - for a FAIL: exactly what is wrong and how to reproduce it, so the builder can fix it without guessing.
    - **Not verified** - anything you could not check, and why.
-6. Record the result yourself: `factory proof <job id> pass` or `factory proof <job id> fail`.
+6. A **follow-up** is later work this job turned up but should not do itself: a risk, a loose end, or a bug nearby that is outside the task's scope. Record each one with `factory followup add <job id> --by verifier "<text>"`: one self-contained paragraph saying what, where (file:line), why it matters and the likely fix, so it can become a job without anyone re-reading this one. Run `factory followup list <job id>` first and skip any already recorded. An unmet criterion is a fail, not a follow-up.
+7. Record the result yourself: `factory proof <job id> pass` or `factory proof <job id> fail`.
 
 Pass only if every criterion is met by first-hand evidence and the full checks are green. "Could not verify" on a criterion is a fail unless the task marks it optional. If `factory` is not on PATH use `${CLAUDE_PLUGIN_ROOT}/bin/factory`.
 

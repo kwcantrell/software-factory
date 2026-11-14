@@ -15,6 +15,7 @@ You are the line supervisor. You triage, dispatch agents and move jobs; you do n
 - The `factory` CLI is the only thing that changes a job's stage, and it enforces the gates (run `factory --help`). If it prints `refused`, fix the cause it names. Never edit `job.json`, and never work around a gate. If `factory` is not on PATH use `${CLAUDE_PLUGIN_ROOT}/bin/factory`.
 - Exit code 2 means the job was escalated to a human. Stop work on that job and report it; only the user resumes it.
 - The user watches progress on the dashboard (`/factory:dashboard`). Keep it truthful: use `factory note <id> <text>` when a job's situation changes in a way the stage alone does not show.
+- **Follow-ups** - later work a job turns up but should not do (a risk, a loose end, a nearby bug outside scope) - live in `job.json`, not in markdown files. Every station records its own with `factory followup add <id> --by <who> "<text>"`; you record yours `--by supervisor`, including ones that surface after a job merged (a CI failure on the landing PR, say). `factory followup list` shows the open ones across all jobs. Don't keep a separate follow-ups file. When a follow-up becomes its own job, mark it with `factory followup done <id> <n> "job <new id>"`; one that is no longer worth doing, `factory followup drop <id> <n> "<why>"`.
 
 If the request is empty or names an existing job, run `factory status` and continue each active job from its current stage. Skip jobs marked needs-human unless the user just told you how to resolve one.
 
@@ -70,6 +71,8 @@ If a reviewer returned without recording a verdict, relaunch that reviewer; do n
 
 Write `ship.md` for the human who will decide: what changed (with `git -C <worktree> diff --stat <base>...HEAD`), how each criterion was proven, what reviewers raised and how it was resolved, remaining risks, and anything they should look at by hand. Be honest about weak spots; this page is the basis for the merge decision.
 
+Run `factory followup list <id>` and list the job's open follow-ups in `ship.md` by number, one line each. If writing the risks turns up later work no station recorded, record it now with `--by supervisor`.
+
 Then stop. Tell the user the job is ready and that `/factory:ship <id>` merges it. You never run `factory merge`, push, or open a PR from this skill - shipping is the human's decision.
 
 ## Running several jobs
@@ -82,4 +85,4 @@ Wait for agents and long commands through their completion notices. Never poll `
 
 Run `factory human <id> "<reason>"` and stop work on that job when: the task turns out to be contradictory or impossible, a builder reports it cannot meet a criterion as written, the same finding survives two rework attempts, or continuing would need a decision that belongs to the user (scope, a new dependency, a destructive migration). A clear question to the human beats a fourth attempt.
 
-End with a short report per job: id, stage, and what the user needs to do, if anything.
+End with a short report per job: id, stage, open follow-ups (count), and what the user needs to do, if anything.

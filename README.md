@@ -61,7 +61,7 @@ One self-contained HTML file, no build step and no dependencies. `factory dashbo
 cd factory && python3 -m http.server
 ```
 
-Jobs are cards that move across the stage columns. Each review round is a row of reviewer chips that fill in as verdicts land. Jobs that need a human are highlighted and counted in the header and the tab title. Click a card to read its markdown files and history. The header shows three line metrics once there is data: first-pass proof rate, review rounds to approval, and time to approval. The page reads `jobs/*/job.json` through the server's directory listing every two seconds, so the files are the only source of truth.
+Jobs are cards that move across the stage columns. Each review round is a row of reviewer chips that fill in as verdicts land. Jobs that need a human are highlighted and counted in the header and the tab title. Click a card to read its markdown files, follow-ups and history. The **Follow-ups** view in the header lists every job's follow-ups in one place (open by default, or all), and cards show their open count. The header shows three line metrics once there is data: first-pass proof rate, review rounds to approval, and time to approval. The page reads `jobs/*/job.json` through the server's directory listing every two seconds, so the files are the only source of truth.
 
 ## How it is enforced
 
@@ -78,6 +78,19 @@ Prompts ask; the `factory` CLI (`bin/factory`, on Claude's PATH while the plugin
 Run `factory --help` for every command. `factory status` is the text version of the dashboard, and `factory stats` prints the line metrics (add `--json` to track them over time).
 
 Runtime state lives in `<project>/factory/` (`jobs/`, `worktrees/`, `index.html`) and ignores itself in git.
+
+## Follow-ups
+
+A job often turns up work it should not do itself: a risk, a loose end, a bug nearby. Each station records these as it goes with `factory followup add <job> --by <who> "<text>"` (builder, verifier, each reviewer, the supervisor, or you), and they are stored in the job's `job.json` with who raised them, in which stage and when. They can be added in any stage, including after a merge.
+
+```
+factory followup list               # open follow-ups across all jobs (--all, --json)
+factory followup list 12            # one job's
+factory followup done 12 2 job 047  # it became job 047
+factory followup drop 12 3 not worth it
+```
+
+`ship.md` lists the job's open follow-ups, and the dashboard shows them per job and across the line.
 
 ## Layout
 
