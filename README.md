@@ -22,7 +22,7 @@ intake ──▶ build ──▶ proof ──▶ review ──▶ ship ──▶
 ## Use
 
 ```
-claude --plugin-dir /path/to/software-factory      # or install from a marketplace
+/plugin install factory --marketplace kwcantrell/kwcantrell-plugins   # or: claude --plugin-dir ./factory
 
 /factory:run add cursor pagination to GET /orders   # one request, one or more jobs
 /factory:run                                        # continue jobs in progress
