@@ -30,6 +30,9 @@ DEFAULTS = {
     "max_review_rounds": 3,
     "max_proof_attempts": 3,
     "spec_gate": False,
+    # Repo-relative directory of living behavior specs, if the project keeps them. Intake reads the
+    # specs a change touches and gives each one an acceptance criterion.
+    "specs_dir": None,
 }
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 
@@ -102,6 +105,12 @@ def load_config(root):
         elif key == "spec_gate":
             if not isinstance(value, bool):
                 raise Refused(f"{path}: 'spec_gate' must be true or false")
+        elif key == "specs_dir":
+            ok = value is None or (isinstance(value, str) and value.strip() and not value.startswith("/")
+                                   and ".." not in Path(value).parts)
+            if not ok:
+                raise Refused(f"{path}: 'specs_dir' must be null or a repo-relative directory like "
+                              f"\"docs/specs\"")
         elif not (isinstance(value, int) and not isinstance(value, bool) and value >= 1):
             raise Refused(f"{path}: '{key}' must be a whole number of at least 1")
         cfg[key] = value

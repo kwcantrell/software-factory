@@ -1,7 +1,7 @@
 {
   "name": "factory",
   "displayName": "Software Factory",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A multi-agent assembly line: intake, isolated builds, independent proof, multi-reviewer code review, and a human merge gate - with a live dashboard.",
   "author": { "name": "Kalen Cantrell" },
   "keywords": ["agents", "workflow", "code-review", "worktrees", "dashboard"]

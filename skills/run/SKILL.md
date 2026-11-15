@@ -30,6 +30,8 @@ For each job, run `factory new "<short title>"`, then write `task.md` in the job
 - **Out of scope** - what not to touch.
 - **Context** - files, conventions and constraints worth knowing. Pointers, not a design.
 
+**Specs.** If `factory config` shows a `specs_dir`, the project keeps living behavior specs there. Before writing criteria, find the specs the change touches (by name, by the code they cite, or by any spec-to-path map the project keeps) and read them. List them under Context. For each one whose described behavior the job changes, add an acceptance criterion to update it in the same job, or one creating a new spec for a new capability. If none changes, say so in Context with the reason. A spec that disagrees with the code you read is a finding: note it as a follow-up rather than silently building on either side.
+
 Read the code before writing criteria so they fit the real system. If the request is ambiguous in a way that changes the criteria, ask the user now; a wrong contract wastes the whole line. Do not ask about things you can decide.
 
 **Spec gate.** Run `factory config`. If `spec_gate` is true, or the user asked to review the plan or spec before building, run `factory spec <id>` instead of starting. Tell the user to read `task.md` (it is on the dashboard) and run `/factory:approve <id>`, then stop work on that job; carry on with any others. You never run `factory approve` yourself. If you edit `task.md` after approval, it needs approving again.

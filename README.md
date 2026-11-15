@@ -43,13 +43,15 @@ Optional. Put a `factory.json` at the repository root and commit it; anything yo
   "reviewers": ["security", "standards", "behavior"],
   "max_review_rounds": 3,
   "max_proof_attempts": 3,
-  "spec_gate": false
+  "spec_gate": false,
+  "specs_dir": null
 }
 ```
 
 - **`reviewers`** - who reviews each round. The plugin ships the three above. To add a lens (say `"performance"`), add the name here and define a `reviewer-performance` agent in the project's `.claude/agents/`; copy one of the plugin's `agents/reviewer-*.md` as a start.
 - **`max_review_rounds`**, **`max_proof_attempts`** - how many tries before a job is flagged needs-human.
 - **`spec_gate`** - when true, every job stops after intake until you approve its `task.md` with `/factory:approve <id>`. Off by default; you can also ask for it per request ("...and let me review the spec first").
+- **`specs_dir`** - the repo-relative directory where the project keeps living behavior specs (say `"docs/specs"`), or `null` if it keeps none. When set, intake reads the specs a change touches, lists them in `task.md`, and gives each one whose behavior changes an acceptance criterion to update it in the same job. Unset by default.
 
 `factory config` prints the effective settings. Unknown keys and bad values are refused, so a typo cannot silently change the line.
 
