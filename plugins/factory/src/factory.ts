@@ -139,6 +139,12 @@ export interface Job {
   created: string;
   history: HistoryEntry[];
   updated?: string;
+  /**
+   * The commit `built` handed to proof: the job branch's head at that moment. Absent in jobs never
+   * built by a CLI that records it (older job.json files); added after the older keys, never by
+   * `blankJob`.
+   */
+  head?: string;
 }
 
 export interface Io {
@@ -467,6 +473,9 @@ export function load(root: string, jobId: string): Job {
  * The fields commands and listings read, checked to be the types the CLI writes. The dashboard's
  * `jobProblem` (dashboard/index.html) is a copy of these rules: change both together.
  */
+/** A full commit hash, SHA-1 or SHA-256. */
+const SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
+
 function checkJob(where: string, jobId: string, data: unknown): Job {
   const bad = (what: string): Refused => new Refused(`${where} is not a job record the factory wrote: ${what}; fix or remove it`);
   const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -484,6 +493,10 @@ function checkJob(where: string, jobId: string, data: unknown): Job {
   }
   if (data.followups !== undefined && !(Array.isArray(data.followups) && data.followups.every(isObj))) {
     throw bad("'followups' is not a list");
+  }
+  // A git argument (merge merges it): only ever a full commit hash, or absent.
+  if (data.head !== undefined && !(typeof data.head === 'string' && SHA.test(data.head))) {
+    throw bad("'head' is not a commit hash");
   }
   return data as unknown as Job;
 }
@@ -522,7 +535,7 @@ function trustRemoteJob(root: string, jobId: string, job: Job): void {
     new Refused(`${where} has ${field} ${JSON.stringify(value)}, but the factory only ever writes ${want}; refusing to use it - fix it on the state branch`);
   if (job.id !== jobId || !JOB_DIR.test(jobId)) throw bad('id', job.id, JSON.stringify(jobId));
   if (job.branch !== null && job.branch !== `factory/${jobId}`) throw bad('branch', job.branch, `null or "factory/${jobId}"`);
-  if (job.base !== null && !(typeof job.base === 'string' && /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(job.base))) {
+  if (job.base !== null && !(typeof job.base === 'string' && SHA.test(job.base))) {
     throw bad('base', job.base, 'null or a commit hash');
   }
   if (job.worktree !== null) job.worktree = join(root, 'worktrees', jobId);
@@ -872,19 +885,72 @@ export const cmdApprove: Command = (root, a, io) => {
   io.stdout(`${id} spec approved; next: factory start ${id}\n`);
 };
 
+/** The commit the job's branch points at in this checkout, or null when the branch is not here. */
+function branchTip(job: Job): string | null {
+  if (!job.branch) return null;
+  return git(['rev-parse', '--verify', '-q', `refs/heads/${job.branch}^{commit}`], mainCheckout(), false) || null;
+}
+
+const short = (sha: string): string => sha.slice(0, 12);
+
+/**
+ * Refuse unless the job's branch still points at the commit `built` recorded (job.head): proof,
+ * review and merge all judge that one commit, never whatever lands on the branch later. A job
+ * without a recorded commit (built by an older CLI) is not checked here; `merge` decides about it.
+ * Branches are local, so the check runs in this machine's checkout; `retry` says how to go on.
+ */
+function requireRecordedHead(job: Job, retry: string): void {
+  if (job.head === undefined) return;
+  const tip = branchTip(job);
+  if (tip === null) {
+    throw new Refused(
+      `${job.id}: branch ${str(job.branch)} is not in ${mainCheckout()}, so it cannot be checked against the commit \`factory built\` recorded (${job.head}); ` +
+        `fetch that branch into this checkout, then retry`,
+    );
+  }
+  if (tip !== job.head) {
+    throw new Refused(
+      `${job.id}: branch ${str(job.branch)} is at ${tip}, but \`factory built\` handed ${job.head} to proof and review; ${retry}`,
+    );
+  }
+}
+
+const builtAgain = (job: Job): string =>
+  `run \`factory built ${job.id}\` again, which sends the new code back through proof`;
+
 export const cmdBuilt: Command = (root, a, io) => {
   const id = editing(root, a, 'built', (job) => {
-    requireStage(job, 'build');
+    // Code that changed after `built` goes back through proof from proof or review too; otherwise
+    // `built` is the end of the build stage.
+    const moved = job.head !== undefined && (job.stage === 'proof' || job.stage === 'review') && branchTip(job) !== job.head;
+    requireStage(job, ...(moved ? [job.stage] : ['build']));
     requireFile(root, job, 'build.md');
     requireNoStray(root, job, 'build.md');
     const wt = job.worktree;
     if (git(['status', '--porcelain'], wt)) {
       throw new Refused(`uncommitted changes in ${str(wt)} - commit them; reviewers read commits`);
     }
-    if (git(['rev-list', '--count', `${str(job.base)}..HEAD`], wt) === '0') {
+    const tip = branchTip(job);
+    if (tip === null) throw new Refused(`branch ${str(job.branch)} is not in ${mainCheckout()}`);
+    const at = git(['rev-parse', 'HEAD'], wt);
+    if (at !== tip) {
+      throw new Refused(`${str(wt)} is at ${short(at)}, not at the tip of ${str(job.branch)} (${short(tip)}); check out ${str(job.branch)} there`);
+    }
+    if (git(['rev-list', '--count', `${str(job.base)}..${tip}`], wt) === '0') {
       throw new Refused(`no commits on ${str(job.branch)} since ${str(job.base).slice(0, 8)}`);
     }
-    move(job, 'proof', 'awaiting independent proof');
+    let event = 'awaiting independent proof';
+    if (moved) {
+      event = `code changed after built (${short(str(job.head))} -> ${short(tip)}); awaiting independent proof`;
+      const last = job.rounds[job.rounds.length - 1];
+      if (job.stage === 'review' && last && Object.values(last.reviewers).some((v) => v.verdict === null)) {
+        // That round reviewed the old commit; its open slots must not judge the new one.
+        job.rounds.pop();
+        event += ` (unfinished review round ${last.n} discarded)`;
+      }
+    }
+    job.head = tip;
+    move(job, 'proof', event);
     return job.id;
   });
   io.stdout(`${id} -> proof\n`);
@@ -893,6 +959,7 @@ export const cmdBuilt: Command = (root, a, io) => {
 export const cmdProof: Command = (root, a, io) => {
   const out = editing(root, a, 'proof', (job) => {
     requireStage(job, 'proof');
+    requireRecordedHead(job, builtAgain(job));
     requireFile(root, job, 'proof.md');
     requireNoStray(root, job, 'proof.md');
     if (a.result === 'pass') {
@@ -913,6 +980,7 @@ export const cmdProof: Command = (root, a, io) => {
 export const cmdRound: Command = (root, a, io) => {
   const out = editing(root, a, 'round', (job) => {
     requireStage(job, 'review');
+    requireRecordedHead(job, builtAgain(job));
     const rounds = job.rounds;
     const last = rounds[rounds.length - 1];
     if (last && Object.values(last.reviewers).some((v) => v.verdict === null)) {
@@ -939,6 +1007,7 @@ export const cmdVerdict: Command = (root, a, io) => {
   const verdict = s(a, 'verdict');
   const out = editing(root, a, 'verdict', (job) => {
     requireStage(job, 'review');
+    requireRecordedHead(job, builtAgain(job));
     const rnd = job.rounds[job.rounds.length - 1];
     if (!rnd) throw new Refused('no review round is open - run `factory round` first');
     const slot = Object.hasOwn(rnd.reviewers, reviewer) ? rnd.reviewers[reviewer] : undefined;
@@ -1040,11 +1109,35 @@ function requireSignedHistory(root: string, cfg: Config, job: Job): void {
   verifyJobHistory(dir, job.id, signers, `${path} at HEAD of ${main}`);
 }
 
+/**
+ * What `merge` merges: the commit `built` recorded, refused when the branch has moved past it. A job
+ * without one (built by an older CLI) merges its branch as before, except where state commits must be
+ * signed: there a rollback of the state branch to a record from before this check could otherwise
+ * merge code no one proved, so it is refused until `built` records the commit.
+ */
+function requireProvenCommit(cfg: Config, job: Job): string {
+  if (job.head === undefined) {
+    if (cfg.remote && cfg.remote.unsigned_ok !== true) {
+      throw new Refused(
+        `${job.id} has no commit recorded by \`factory built\` (it was built by an older factory), so what proof and review judged cannot be checked; ` +
+          `a human runs \`factory rework ${job.id}\` and the builder runs \`factory built ${job.id}\` again to record the commit and send it through proof and review; nothing was merged`,
+      );
+    }
+    return str(job.branch);
+  }
+  requireRecordedHead(
+    job,
+    `a human runs \`factory rework ${job.id}\`, then ${builtAgain(job)}; nothing was merged`,
+  );
+  return job.head;
+}
+
 /** The human gate. hooks/hooks.json (src/human-gate.ts) makes Claude Code ask before this runs. */
 export const cmdMerge: Command = (root, a, io) => {
   const out = editing(root, a, 'merge', (job) => {
     requireSignedHistory(root, a.cfg, job);
     requireStage(job, 'ship');
+    const merged = requireProvenCommit(a.cfg, job);
     const main = mainCheckout();
     if (git(['status', '--porcelain', '--untracked-files=no'], main)) {
       throw new Refused(`${main} has uncommitted changes; commit or stash them before merging`);
@@ -1056,7 +1149,8 @@ export const cmdMerge: Command = (root, a, io) => {
       );
     }
     const branch = str(job.branch);
-    const p = run('git', ['merge', '--no-ff', '-m', `Merge ${branch}: ${job.title}`, branch], main);
+    // The recorded commit itself, never the branch name resolved now: what proof and review judged.
+    const p = run('git', ['merge', '--no-ff', '-m', `Merge ${branch}: ${job.title}`, merged], main);
     if (p.status !== 0) {
       // Only unmerged paths mean a conflict; anything else (no git identity, a hook, a lock) is
       // reported in git's own words so the human is not sent looking for a conflict.
@@ -1298,6 +1392,7 @@ export const cmdStatus: Command = (root, a, io) => {
       io.stdout(
         `  title:    ${str(j.title)}\n  job dir:  ${join(root, 'jobs', j.id)}\n` +
           `  worktree: ${str(j.worktree)}\n  branch:   ${str(j.branch)}  base: ${str(j.base)}\n` +
+          (j.head ? `  built:    ${short(j.head)} (the commit proof, review and merge judge)\n` : '') +
           `  activity: ${str(j.activity)}\n  follow-ups: ${openFu} open (factory followup list ${j.id})\n` +
           (j.owner ? `  owner:    ${personText(j.owner)}\n` : ''),
       );

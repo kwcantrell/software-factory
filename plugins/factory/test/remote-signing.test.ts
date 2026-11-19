@@ -222,10 +222,71 @@ test('a hand-edited job.json committed outside the CLI with an allowed key passe
   writeFileSync(join(wt, 'by-hand.txt'), 'x\n');
   ann.git(['add', 'by-hand.txt'], wt);
   ann.git(['commit', '-q', '-m', 'x'], wt);
-  forge(intruder(w), id, forgedApproval, bob.key);
+  // The edit must name the commit, as `built` records it: a ship record without one is refused
+  // under signing (a rollback to a record from before `head` existed would skip the check).
+  const m = intruder(w);
+  forge(m, id, forgedApproval, bob.key);
+  ann.ok(['status']);
+  ann.refused(['merge', id], new RegExp(`${id} has no commit recorded by \`factory built\`.*\`factory rework ${id}\`.*\`factory built ${id}\` again`));
+  assert.equal(existsSync(join(ann.repo, 'by-hand.txt')), false);
+  forge(m, id, (job) => (job.head = ann.git(['rev-parse', 'HEAD'], wt)), bob.key);
   ann.ok(['status']);
   assert.match(ann.ok(['merge', id]), /merged into main/);
   assert.ok(existsSync(join(ann.repo, 'by-hand.txt')));
+}));
+
+test('a rollback of the state branch to a signed ship record cannot merge code built after it', withWorld((w) => {
+  const ann = new Person(w, 'Ann');
+  const bob = new Person(w, 'Bob');
+  ann.ok(['init']);
+  bob.ok(['init']);
+  trust(ann, w, [ann, bob]);
+  trust(bob, w, [ann, bob]);
+  const id = ann.startedJob('Rolled back');
+  toShip(ann, id);
+  const reviewed = ann.git(['rev-parse', 'HEAD'], ann.job(id).worktree as string);
+  bob.ok(['status']);
+  assert.equal(bob.job(id).stage, 'ship');
+  const shipTip = w.remote(['rev-parse', BRANCH]);
+  // A human sends it back; the builder commits new code and hands it to proof again.
+  ann.ok(['rework', id, 'one more change']);
+  const wt = ann.job(id).worktree as string;
+  writeFileSync(join(wt, 'unreviewed.txt'), 'never proven or reviewed\n');
+  ann.git(['add', 'unreviewed.txt'], wt);
+  ann.git(['commit', '-q', '-m', 'unreviewed'], wt);
+  ann.ok(['built', id]);
+  const unreviewed = ann.git(['rev-parse', 'HEAD'], wt);
+  ann.git(['push', '-q', 'origin', `factory/${id}`]);
+  // Someone with push access rolls the state branch back to the signed ship tip.
+  const m = intruder(w);
+  m.git(['push', '-q', '--force', 'origin', `${shipTip}:refs/heads/${BRANCH}`]);
+  assert.equal(w.remote(['rev-parse', BRANCH]), shipTip);
+  // The merger pulls it (every commit in it is signed by an allowed key) and has the branch.
+  bob.git(['fetch', '-q', 'origin', `factory/${id}:factory/${id}`]);
+  bob.ok(['status']);
+  assert.equal(bob.job(id).stage, 'ship');
+  const main = bob.git(['rev-parse', 'HEAD']);
+  const p = bob.refused(['merge', id], new RegExp(`branch factory/${id} is at ${unreviewed}, but \`factory built\` handed ${reviewed} to proof and review`));
+  assert.match(p.stderr, new RegExp(`\`factory built ${id}\` again`));
+  assert.equal(bob.git(['rev-parse', 'HEAD']), main, 'nothing was merged');
+  assert.equal(existsSync(join(bob.repo, 'unreviewed.txt')), false);
+  assert.equal(bob.job(id).stage, 'ship');
+  assert.equal(w.remote(['rev-parse', BRANCH]), shipTip, 'a refused merge publishes nothing');
+  assert.equal(bob.job(id).head, reviewed);
+  assert.equal(ann.job(id).head, unreviewed);
+}));
+
+test('a merger without the job branch is refused with how to get it', withWorld((w) => {
+  const ann = new Person(w, 'Ann');
+  const bob = new Person(w, 'Bob');
+  ann.ok(['init']);
+  bob.ok(['init']);
+  trust(ann, w, [ann, bob]);
+  trust(bob, w, [ann, bob]);
+  const id = ann.startedJob('Elsewhere');
+  toShip(ann, id);
+  bob.refused(['merge', id], new RegExp(`branch factory/${id} is not in .*fetch that branch into this checkout`));
+  assert.equal(existsSync(join(bob.repo, 'feature.txt')), false);
 }));
 
 test('a push that loses a race replays the state commit signed: every commit stays good and the job that lost merges', withWorld((w) => {

@@ -96,6 +96,19 @@ function fixtureJob(id: string): Record<string, unknown> {
   return JSON.parse(readFileSync(join(FIXTURES, 'factory-py', 'factory', 'jobs', id, 'job.json'), 'utf8'));
 }
 
+/**
+ * A job this CLI drove through `built` has the one key the original CLI never wrote: `head`, the
+ * built commit, after every older key. Anything else extra still fails the shape comparison.
+ */
+function withoutHead(job: Record<string, unknown>): Record<string, unknown> {
+  if (!Object.hasOwn(job, 'head')) return job;
+  const keys = Object.keys(job);
+  assert.equal(keys[keys.length - 1], 'head', 'head comes after the original keys');
+  assert.match(String(job.head), /^[0-9a-f]{40}([0-9a-f]{24})?$/);
+  const { head: _head, ...rest } = job;
+  return rest;
+}
+
 test('jobs the port writes have the same keys, order and value types as the original', () => {
   const r = new Repo();
   try {
@@ -143,7 +156,7 @@ test('jobs the port writes have the same keys, order and value types as the orig
     r.ok(['followup', 'add', ship, '--by', 'supervisor', 'Dropped one']);
     r.ok(['followup', 'drop', ship, '3']);
     // The dropped follow-up has a null resolution, the done one a string: compare item by item.
-    const mine = r.job(ship);
+    const mine = withoutHead(r.job(ship));
     const theirs = fixtureJob('004-shipped-after-two-rounds');
     assert.deepEqual(shape({ ...mine, followups: [] }), shape({ ...theirs, followups: [] }));
     (mine.followups as unknown[]).forEach((f, i) => {
@@ -154,7 +167,7 @@ test('jobs the port writes have the same keys, order and value types as the orig
     const merged = r.shippedJob('merged.txt');
     r.write(merged, 'ship.md', '# ship\n');
     r.ok(['merge', merged]);
-    assert.deepEqual(shape(r.job(merged)), shape(fixtureJob('005-merged-job')));
+    assert.deepEqual(shape(withoutHead(r.job(merged))), shape(fixtureJob('005-merged-job')));
 
     // The port's files are byte-compatible in layout: indent 2 and a trailing newline.
     const text = readFileSync(join(r.jobDir(merged), 'job.json'), 'utf8');
