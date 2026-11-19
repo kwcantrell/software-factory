@@ -18,6 +18,12 @@
       "source": "./plugins/factory-plugin-builder",
       "description": "Builds software-factory plugins: scaffolds one from the template, checks plugins against the CLI convention with a fix per finding, and runs a plugin's full verification gate",
       "license": "MIT"
+    },
+    {
+      "name": "factory-dev",
+      "source": "./plugins/factory-dev",
+      "description": "Dev tooling for developing software-factory: one check command that runs every CI gate, and the release tag/version check that prints the release notes for a version",
+      "license": "MIT"
     }
   ]
 }
