@@ -29,6 +29,12 @@ export function cleanEnv(home: string, extra: Record<string, string> = {}): Node
     HOME: home,
     GIT_CONFIG_NOSYSTEM: '1',
     GIT_CONFIG_GLOBAL: '/dev/null',
+    // No background maintenance or auto-gc: it writes lock files under .git/objects mid-test.
+    GIT_CONFIG_COUNT: '2',
+    GIT_CONFIG_KEY_0: 'maintenance.auto',
+    GIT_CONFIG_VALUE_0: 'false',
+    GIT_CONFIG_KEY_1: 'gc.auto',
+    GIT_CONFIG_VALUE_1: '0',
     GIT_AUTHOR_NAME: 'Test',
     GIT_AUTHOR_EMAIL: 'test@example.invalid',
     GIT_COMMITTER_NAME: 'Test',

@@ -53,14 +53,31 @@ function fromFixture(r: Repo, commit: string): void {
   r.commitIn('003-ship-job', 'shipped.txt');
 }
 
-/** Every file under dir (worktrees' .git pointers included) and its content. */
-function snapshot(dir: string): Map<string, string> {
+/**
+ * True for what git itself writes and rewrites on its own under a `.git` dir: lock files, the object
+ * store, reflogs and the index. Anything else in there (a backup dir, a pointer file) is the code
+ * under test's doing and stays visible.
+ */
+export function isGitVolatile(rel: string): boolean {
+  const parts = rel.split('/');
+  const at = parts.lastIndexOf('.git');
+  if (at < 0) return false;
+  const inside = parts.slice(at + 1);
+  const name = inside[inside.length - 1] ?? '';
+  return name.endsWith('.lock') || name === 'index' || inside[0] === 'objects' || inside[0] === 'logs' ||
+    (inside[0] === 'worktrees' && (inside[2] === 'logs' || inside[2] === 'index'));
+}
+
+/** Every file under dir (worktrees' .git pointers included) and its content, minus git's own volatile files. */
+export function snapshot(dir: string): Map<string, string> {
   const out = new Map<string, string>();
   const walk = (d: string): void => {
     for (const name of readdirSync(d)) {
       const p = join(d, name);
-      if (statSync(p).isDirectory()) walk(p);
-      else out.set(relative(dir, p), readFileSync(p, 'latin1'));
+      const rel = relative(dir, p);
+      if (statSync(p).isDirectory()) {
+        if (!isGitVolatile(`${rel}/x`) || rel.split('/').pop() === '.git') walk(p);
+      } else if (!isGitVolatile(rel)) out.set(rel, readFileSync(p, 'latin1'));
     }
   };
   walk(dir);
@@ -508,4 +525,39 @@ test('--repo works from an unrelated directory, and --json prints one JSON value
   assert.match(applied.backup, /upgrade-backup-/);
   assert.equal(json(r, []).nothing_to_do, true);
   rmSync(elsewhere, { recursive: true });
+}));
+
+// ---------------------------------------------------------------- snapshot helper and git maintenance
+
+test('helper-made repos have git background maintenance and auto-gc off', withRepo((r) => {
+  assert.equal(r.git(['config', 'maintenance.auto']), 'false');
+  assert.equal(r.git(['config', 'gc.auto']), '0');
+}));
+
+test('snapshot ignores git lock files and internals but reports a file planted under .git', withRepo((r) => {
+  const before = snapshot(r.tmp);
+  writeFileSync(join(r.repo, '.git', 'objects', 'maintenance.lock'), '');
+  writeFileSync(join(r.repo, '.git', 'index.lock'), '');
+  mkdirSync(join(r.repo, '.git', 'objects', 'zz'), { recursive: true });
+  writeFileSync(join(r.repo, '.git', 'objects', 'zz', 'obj'), 'x');
+  writeFileSync(join(r.repo, '.git', 'logs', 'HEAD'), 'changed');
+  assert.deepEqual(snapshot(r.tmp), before, 'git internals must not show');
+  mkdirSync(join(r.repo, '.git', 'factory-upgrade-backup-1'));
+  writeFileSync(join(r.repo, '.git', 'factory-upgrade-backup-1', 'settings.json'), '{}');
+  assert.notDeepEqual(snapshot(r.tmp), before, 'a backup dir under .git must show');
+  rmSync(join(r.repo, '.git', 'factory-upgrade-backup-1'), { recursive: true });
+  writeFileSync(join(r.repo, '.git', 'planted.txt'), 'x');
+  assert.notDeepEqual(snapshot(r.tmp), before, 'a planted file under .git must show');
+}));
+
+test('a git maintenance lock appearing and vanishing between snapshots does not fail a refusal test', withRepo((r) => {
+  const dir = claudeDir(r);
+  const path = join(dir, 'settings.json');
+  writeFileSync(path, `{"enabledPlugins": {"${OLD_KEY}": true},}\n`);
+  const before = snapshot(r.tmp);
+  const lock = join(r.repo, '.git', 'objects', 'maintenance.lock');
+  writeFileSync(lock, '');
+  upgrade(r, ['--apply'], 1);
+  rmSync(lock);
+  assert.deepEqual(snapshot(r.tmp), before);
 }));
