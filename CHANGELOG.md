@@ -90,6 +90,10 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Fixed
 
+- CI: `plugins/factory/test/remote.test.ts` (72 s locally) crossed the 120 s per-file test timeout on the
+  runner. It is split into `remote.test.ts`, `remote-claims.test.ts`, `remote-planted.test.ts` and
+  `remote-signing.test.ts` (each under 45 s) with shared setup in `remote-helpers.ts`; no test was
+  changed or dropped and the timeout is unchanged.
 - One `job.json` that is not valid JSON or not the shape the CLI writes (say, pushed to a remote
   factory's state branch) no longer makes `status`, `stats` and `followup list` fail for every job:
   they skip it with one stderr warning naming its directory and why, and exit 0; the dashboard
