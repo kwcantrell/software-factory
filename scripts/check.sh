@@ -35,7 +35,7 @@ else
   if ! claude plugin validate .; then
     fail "claude plugin validate ."
   fi
-  for plugin in plugins/*/; do
+  for plugin in plugins/*/ templates/plugin/; do
     if ! claude plugin validate "${plugin%/}"; then
       fail "claude plugin validate ${plugin%/}"
     fi

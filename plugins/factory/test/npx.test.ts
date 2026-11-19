@@ -77,6 +77,64 @@ test('init, new and start through npx in a git repo with one commit', () => {
   assert.match(p.stderr, /^refused: 001-try-it-out is in 'build', expected intake\n$/);
 });
 
+// Every ```sh command line of every skill, run as written through npx from the fresh copy (the
+// convention's e2e skill-line test). `<command>` is the line that defines `factory` for the prompt;
+// it is filled with --help. The dashboard line starts a server: it runs on a free port until it
+// prints where it serves, then it is stopped.
+function skillCommands(): { skill: string; line: string }[] {
+  return readdirSync(join(pluginRoot, 'skills')).flatMap((skill) => {
+    const text = readFileSync(join(pluginRoot, 'skills', skill, 'SKILL.md'), 'utf8');
+    return [...text.matchAll(/```sh\n([\s\S]*?)```/g)]
+      .flatMap((m) => (m[1] ?? '').split('\n'))
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith('npx '))
+      .map((line) => ({ skill, line }));
+  });
+}
+
+async function freePort(): Promise<number> {
+  const s = createServer();
+  await new Promise<void>((resolve) => s.listen(0, '127.0.0.1', resolve));
+  const { port } = s.address() as AddressInfo;
+  await new Promise<void>((resolve) => s.close(() => resolve()));
+  return port;
+}
+
+test('every skill command line runs through npx from a fresh copy', async () => {
+  const commands = skillCommands();
+  assert.deepEqual([...new Set(commands.map((c) => c.skill))].sort(), ['approve', 'dashboard', 'run', 'ship']);
+  const repo = join(scratch, 'skill-lines');
+  mkdirSync(repo);
+  for (const args of [['init', '-q', '-b', 'main'], ['commit', '-q', '--allow-empty', '-m', 'initial']]) {
+    assert.equal(spawnSync('git', args, { cwd: repo, env: { ...env, GIT_CONFIG_GLOBAL: '/dev/null' } }).status, 0);
+  }
+  assert.equal(sh(`${INVOCATION} init`, repo).status, 0);
+  for (const { skill, line } of commands) {
+    assert.ok(line.startsWith(`${INVOCATION} `), `${skill}: ${line}`);
+    const filled = line.replaceAll('<command>', '--help');
+    assert.doesNotMatch(filled, /<[a-z-]+>/, `${skill}: unknown placeholder in ${line}`);
+    if (/ -- factory dashboard /.test(filled)) {
+      const port = await freePort();
+      const child = spawn('sh', ['-c', filled.replace(/--port \d+/, `--port ${port}`)], { cwd: repo, env, detached: true });
+      let out = '';
+      child.stderr.resume();
+      const banner = await new Promise<string>((resolve, reject) => {
+        child.stdout.on('data', (chunk: Buffer) => {
+          out += chunk.toString();
+          if (out.includes('\n')) resolve(out);
+        });
+        child.on('close', (code) => reject(new Error(`${skill}: ${line} exited ${code}`)));
+      });
+      process.kill(-(child.pid as number), 'SIGTERM');
+      assert.match(banner, new RegExp(`^dashboard: http://127\\.0\\.0\\.1:${port}/ `), `${skill}: ${line}`);
+      continue;
+    }
+    const p = sh(filled, repo);
+    assert.equal(p.status, 0, `${skill}: ${line}\n${p.stderr}`);
+    assert.match(p.stdout, /^usage: factory /im, `${skill}: ${line}`);
+  }
+});
+
 // Guard against `--package=""`: npm reads an empty spec as the registry package `undefined` (owned by
 // a third party), and `--yes` would install and run it unprompted. `--offline` in the invocation must
 // stop that before any request, even when npm itself is allowed online.

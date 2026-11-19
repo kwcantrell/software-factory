@@ -1,0 +1,8 @@
+{
+  "name": "plugin-template",
+  "version": "0.1.0",
+  "description": "Template for software-factory plugins: a skill that calls the plugin's own TypeScript CLI through npx.",
+  "author": { "name": "Kalen Cantrell" },
+  "license": "MIT",
+  "keywords": ["software-factory", "template"]
+}
