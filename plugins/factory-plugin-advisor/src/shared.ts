@@ -13,9 +13,14 @@
 // without a working tree: a bare clone in the advisor's own config dir, and each change built with
 // plumbing on top of the branch's newest tip, so it touches only `advisor/` and never conflicts with
 // a job. Occurrences wait in a local queue until a push lands; nothing here ever throws into the hook.
+//
+// Several processes of one user (records, hooks, any command) share that bare clone and queue. An
+// occurrence is written to the queue before any git runs, so it is never lost to a git failure, and
+// every git step on the clone (creating it, fetch, commit, push) runs under one lock file per clone.
+// A process that cannot take the lock within LOCK_WAIT_MS leaves the queue to the next command.
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, rmSync, unlinkSync } from 'node:fs';
+import { existsSync, linkSync, readdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { Env } from './plugins.ts';
 import type { IssueState, Occurrence, State, StationState } from './store.ts';
@@ -34,6 +39,12 @@ export const SHARED_MAX_LINES = 10_000;
 export const QUEUE_MAX = 500;
 /** The author of every commit the advisor pushes: never the user's identity. */
 export const AUTHOR = { name: 'factory-plugin-advisor', email: 'factory-plugin-advisor@users.noreply.invalid' } as const;
+/** How long a process waits for another one of the same user to finish with the bare clone. */
+export const LOCK_WAIT_MS = 5_000;
+/** The lock file, in the clone's dir: it holds the pid of the process using the clone. */
+export const LOCK_FILE = 'lock';
+/** How many times one sync pushes again for occurrences queued while it ran. */
+const SYNC_ROUNDS = 3;
 const NETWORK_TIMEOUT_MS = 20_000;
 const LOCAL_TIMEOUT_MS = 10_000;
 
@@ -327,7 +338,21 @@ function gitEnv(env: Env, extra: Record<string, string> = {}): NodeJS.ProcessEnv
   };
 }
 
-export type Sync = 'ok' | 'unreachable';
+/** 'busy': another process of this user held the clone's lock for LOCK_WAIT_MS; nothing was fetched or pushed. */
+export type Sync = 'ok' | 'unreachable' | 'busy';
+
+function sleep(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
 
 /** What the shared side needs from the Store: owner-only directories and files in the config dir. */
 export interface Files {
@@ -384,10 +409,60 @@ export class SharedLog {
     return p.stdout.trim();
   }
 
-  /** Creates the bare clone (owner-only) and points its origin at the configured remote. */
-  private init(): void {
+  /**
+   * Runs `fn` holding the clone's lock (the factory's `locked()`: a hard link that fails while the
+   * lock exists; a lock whose pid is not alive is stale and taken over). 'busy' when another live
+   * process holds it for LOCK_WAIT_MS.
+   */
+  private locked<T>(fn: () => T): T | 'busy' {
     this.files.ensureDir(dirname(this.dir));
     this.files.ensureDir(this.dir);
+    const lock = join(this.dir, LOCK_FILE);
+    const mine = join(this.dir, `lock.${process.pid}.tmp`);
+    const deadline = Date.now() + LOCK_WAIT_MS;
+    writeFileSync(mine, `${process.pid}\n`, { mode: 0o600 });
+    try {
+      for (;;) {
+        try {
+          linkSync(mine, lock);
+          break;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        }
+        let owner = NaN;
+        try {
+          owner = Number.parseInt(readFileSync(lock, 'utf8'), 10);
+        } catch {
+          continue; // released between the attempt and the read
+        }
+        if (!Number.isInteger(owner) || owner <= 0 || !alive(owner)) {
+          // Stale: moved aside under a unique name first, so two processes never both remove a live lock.
+          const aside = join(this.dir, `lock.stale.${process.pid}`);
+          try {
+            renameSync(lock, aside);
+            const again = Number.parseInt(readFileSync(aside, 'utf8'), 10);
+            if (again === owner || Number.isNaN(again)) unlinkSync(aside);
+            else renameSync(aside, lock); // taken in between: put it back
+          } catch {
+            // lost a race with another process doing the same; try again
+          }
+          continue;
+        }
+        if (Date.now() >= deadline) return 'busy';
+        sleep(20);
+      }
+    } finally {
+      rmSync(mine, { force: true });
+    }
+    try {
+      return fn();
+    } finally {
+      rmSync(lock, { force: true });
+    }
+  }
+
+  /** Creates the bare clone (owner-only) and points its origin at the configured remote. Under the lock only. */
+  private init(): void {
     if (!existsSync(join(this.bare, 'HEAD'))) {
       rmSync(this.bare, { recursive: true, force: true });
       const p = spawnSync('git', ['init', '-q', '--bare', this.bare], { encoding: 'utf8', env: gitEnv(this.env), timeout: LOCAL_TIMEOUT_MS });
@@ -459,9 +534,13 @@ export class SharedLog {
     return 'unreachable';
   }
 
-  /** Puts one occurrence in the queue (a file of its own, so concurrent hooks never clash). */
+  /**
+   * Puts one occurrence in the queue (a file of its own, written atomically, so concurrent hooks never
+   * clash). No git runs here: the occurrence is queued even when the clone cannot be set up.
+   */
   queue(o: Occurrence): void {
-    this.init();
+    this.files.ensureDir(dirname(this.dir));
+    this.files.ensureDir(this.dir);
     this.files.ensureDir(this.queueDir);
     this.files.writeFile(join(this.queueDir, `${o.id ?? newId()}.json`), `${JSON.stringify(o)}\n`);
     const all = this.queued();
@@ -492,46 +571,62 @@ export class SharedLog {
 
   /**
    * Pull, and push the queue (oldest first) plus any state change that could not be pushed before.
-   * Runs once per command; never throws.
+   * Runs once per command; never throws. When another process holds the clone's lock too long, it
+   * does nothing ('busy') and says nothing: the queue waits for the next command.
    */
   sync(): Sync {
-    if (this.fetched !== null) return this.fetched === 'unreachable' ? 'unreachable' : 'ok';
+    if (this.fetched !== null) return this.fetched === 'missing' ? 'ok' : this.fetched;
     try {
-      this.init();
-      const queued = this.queued().sort((a, b) => a.o.at.localeCompare(b.o.at));
-      let result: Sync;
-      if (queued.length === 0) {
-        const f = this.fetch();
-        this.fetched = f;
-        result = f === 'unreachable' ? 'unreachable' : 'ok';
-      } else {
-        result = this.update(`factory-plugin-advisor: record ${queued.length} occurrence${queued.length === 1 ? '' : 's'}`, (read) => {
-          const current = read(SHARED_LOG) ?? '';
-          const have = new Set(parseLog(current, sharedOccurrence).map((o) => o.id));
-          const add = queued.filter((q) => !have.has(q.o.id));
-          if (add.length === 0) return null;
-          let text = `${current}${current === '' || current.endsWith('\n') ? '' : '\n'}${add.map((q) => `${JSON.stringify(q.o)}\n`).join('')}`;
-          if (Buffer.byteLength(text) > SHARED_MAX_BYTES) text = `${text.split('\n').filter((l) => l !== '').slice(-SHARED_MAX_LINES).join('\n')}\n`;
-          return { [SHARED_LOG]: text };
-        });
-        if (result === 'ok') for (const q of queued) rmSync(join(this.queueDir, q.name), { force: true });
-      }
-      if (result === 'ok' && existsSync(this.pendingPath)) {
-        // A state change made while the remote was unreachable: the merged local state carries it.
-        try {
-          const pending = parseState(readFileSync(this.pendingPath, 'utf8'));
-          if (this.pushState(pending) === 'ok') unlinkSync(this.pendingPath);
-        } catch {
-          // kept for the next sync
-        }
-      }
-      if (result === 'unreachable') this.notes.push(`cannot reach the remote factory ${displayUrl(this.share.url)} (branch ${this.share.branch}); occurrences wait in ${this.queueDir} and are pushed by the next command that reaches it`);
+      const result = this.locked(() => this.syncLocked());
+      if (result === 'busy') this.fetched = 'busy';
       return result;
     } catch (error) {
       this.notes.push(`shared log: ${(error as Error).message}`);
       this.fetched = 'unreachable';
       return 'unreachable';
     }
+  }
+
+  private syncLocked(): Sync {
+    this.init();
+    let result: Sync = 'ok';
+    const tried = new Set<string>();
+    for (let round = 1; round <= SYNC_ROUNDS; round++) {
+      // Occurrences queued by other processes while this one pushed are taken along (a few rounds at most).
+      const queued = this.queued().sort((a, b) => a.o.at.localeCompare(b.o.at));
+      if (round > 1 && queued.every((q) => tried.has(q.name))) break;
+      for (const q of queued) tried.add(q.name);
+      if (queued.length === 0) {
+        if (round === 1) {
+          const f = this.fetch();
+          this.fetched = f;
+          result = f === 'unreachable' ? 'unreachable' : 'ok';
+        }
+        break;
+      }
+      result = this.update(`factory-plugin-advisor: record ${queued.length} occurrence${queued.length === 1 ? '' : 's'}`, (read) => {
+        const current = read(SHARED_LOG) ?? '';
+        const have = new Set(parseLog(current, sharedOccurrence).map((o) => o.id));
+        const add = queued.filter((q) => !have.has(q.o.id));
+        if (add.length === 0) return null;
+        let text = `${current}${current === '' || current.endsWith('\n') ? '' : '\n'}${add.map((q) => `${JSON.stringify(q.o)}\n`).join('')}`;
+        if (Buffer.byteLength(text) > SHARED_MAX_BYTES) text = `${text.split('\n').filter((l) => l !== '').slice(-SHARED_MAX_LINES).join('\n')}\n`;
+        return { [SHARED_LOG]: text };
+      });
+      if (result !== 'ok') break;
+      for (const q of queued) rmSync(join(this.queueDir, q.name), { force: true });
+    }
+    if (result === 'ok' && existsSync(this.pendingPath)) {
+      // A state change made while the remote was unreachable: the merged local state carries it.
+      try {
+        const text = readFileSync(this.pendingPath, 'utf8');
+        if (this.pushState(parseState(text)) === 'ok' && readFileSync(this.pendingPath, 'utf8') === text) unlinkSync(this.pendingPath);
+      } catch {
+        // kept for the next sync
+      }
+    }
+    if (result === 'unreachable') this.notes.push(`cannot reach the remote factory ${displayUrl(this.share.url)} (branch ${this.share.branch}); occurrences wait in ${this.queueDir} and are pushed by the next command that reaches it`);
+    return result;
   }
 
   private get pendingPath(): string {
@@ -573,8 +668,10 @@ export class SharedLog {
   saveState(state: State): Sync {
     let result: Sync;
     try {
-      this.init();
-      result = this.pushState(state);
+      result = this.locked(() => {
+        this.init();
+        return this.pushState(state);
+      });
     } catch {
       result = 'unreachable';
     }
@@ -586,7 +683,11 @@ export class SharedLog {
       } catch {
         // the local state.json still holds it
       }
-      this.notes.push(`cannot reach the remote factory ${displayUrl(this.share.url)} (branch ${this.share.branch}); the state change is saved locally and pushed by the next command that reaches it`);
+      this.notes.push(
+        result === 'busy'
+          ? `another factory-plugin-advisor command is using the shared log; the state change is saved locally and pushed by the next command`
+          : `cannot reach the remote factory ${displayUrl(this.share.url)} (branch ${this.share.branch}); the state change is saved locally and pushed by the next command that reaches it`,
+      );
     }
     return result;
   }
