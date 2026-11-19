@@ -82,3 +82,7 @@ PATH, none, and the real one when installed; a real strict typecheck when `npm c
 `test/cli.test.ts` runs every skill command line through npx from a fresh copy of the plugin.
 `test/docs.test.ts` checks that this README's rules table and the root CLAUDE.md name exactly the
 rules the checker defines. No test writes to the real repo.
+
+## Versioning
+
+Every plugin in this marketplace carries the same version, the repository's. `CHANGELOG.md` lists what changed in each release.

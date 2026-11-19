@@ -1,6 +1,6 @@
 {
   "name": "factory-plugin-builder",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "CLI for the factory-plugin-builder Claude Code plugin (scaffold, convention check and verification for software-factory plugins); run by its skill via npx.",
   "type": "module",

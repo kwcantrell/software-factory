@@ -1,6 +1,6 @@
 {
   "name": "factory-docs",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "CLI for the factory-docs Claude Code plugin (doc map, which, stale, lint, gate); run by its skill and CI via npx.",
   "type": "module",

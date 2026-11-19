@@ -248,3 +248,7 @@ Design choices and the published practice each one follows:
 - **Optional human review of the spec, and the line defined in a checked-in file.** Warp's factories stop for a human at the spec as well as the code, and are configured by a `factory.yaml` in the repo. Here that is `spec_gate` and `factory.json`. ([Warp Factories](https://www.warp.dev/factories))
 - **Measure the line, not just the jobs.** Warp's Factories page puts it as "Measurement > Vibes": score every run and tune the factory against numbers. `factory stats` and the dashboard header report first-pass proof rate, rounds to approval, time to approval and escalation rate, so a prompt or model change to a station can be judged by what it does to them. ([Warp Factories](https://www.warp.dev/factories))
 - **Keep the harness small.** Anthropic's closing advice: every harness component encodes an assumption about what the model cannot do alone, and those go stale. Each station here is one short prompt file; remove or merge stations as models improve.
+
+## Versioning
+
+Every plugin in this marketplace carries the same version, the repository's. `CHANGELOG.md` lists what changed in each release.

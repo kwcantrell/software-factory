@@ -135,3 +135,7 @@ hex, ids and numbers masked. So "refused: 005-port-the-factory is at stage build
 - **Why `node` and not the `npx` prefix.** The hook runs this plugin's own CLI either way. `npx`
   would add about 0.3 s of npm start-up to every failed Bash call. `node` on `src/cli.ts` needs no
   `--offline` guard, because it never resolves a package.
+
+## Versioning
+
+Every plugin in this marketplace carries the same version, the repository's. `CHANGELOG.md` lists what changed in each release.
