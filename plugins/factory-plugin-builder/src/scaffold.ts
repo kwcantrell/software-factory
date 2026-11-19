@@ -1,11 +1,50 @@
 // new: copies templates/plugin to plugins/<name>/, renames the template's identifiers (plugin name,
 // skill folder and name, CLI bin name: all the token "plugin-template") and appends the plugin to
-// marketplace.json. The root `npm run new-plugin` runs this same code through the CLI.
+// marketplace.json. The new plugin's plugin.json and package.json get the version the marketplace's
+// plugins share (one changelog, one repo version), so it passes factory-dev check as made. The root
+// `npm run new-plugin` runs this same code through the CLI.
 import { cpSync, existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { CommandError, MARKETPLACE_PATH, TEMPLATE_PATH, UsageError, readMarketplace, validateName } from './repo.ts';
+import { CommandError, MARKETPLACE_PATH, TEMPLATE_PATH, UsageError, marketplaceEntries, readMarketplace, validateName } from './repo.ts';
 
 export const TEMPLATE_TOKEN = 'plugin-template';
+
+const VERSION_RE = /^(\d+)\.(\d+)\.(\d+)$/;
+
+function compareVersions(a: string, b: string): number {
+  const x = (VERSION_RE.exec(a) ?? []).slice(1).map(Number);
+  const y = (VERSION_RE.exec(b) ?? []).slice(1).map(Number);
+  for (let i = 0; i < 3; i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) - (y[i] ?? 0);
+  return 0;
+}
+
+/**
+ * The repo version: the X.Y.Z `version` in the plugin.json of the plugins marketplace.json lists from
+ * "./" sources. They normally all share it; if they differ (factory-dev check refuses that), the
+ * highest. Null when no listed plugin has one.
+ */
+export function repoVersion(root: string): string | null {
+  const versions: string[] = [];
+  for (const entry of marketplaceEntries(root)) {
+    const source = entry.source;
+    if (typeof source !== 'string' || !source.startsWith('./') || source.split('/').includes('..')) continue;
+    try {
+      const manifest: unknown = JSON.parse(readFileSync(join(root, source, '.claude-plugin', 'plugin.json'), 'utf8'));
+      const version = typeof manifest === 'object' && manifest !== null ? (manifest as { version?: unknown }).version : undefined;
+      if (typeof version === 'string' && VERSION_RE.test(version)) versions.push(version);
+    } catch {
+      // no readable manifest: it has no version to share
+    }
+  }
+  return versions.sort(compareVersions).at(-1) ?? null;
+}
+
+/** Sets "version" in a JSON object file, keeping its other keys in order. */
+function setVersion(path: string, version: string): void {
+  const value = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+  value.version = version;
+  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+}
 
 export interface Created {
   name: string;
@@ -35,13 +74,16 @@ export function scaffold(root: string, name: string, description?: string): Crea
   }
 
   const summary = description?.trim() ?? `${name}: TODO describe what this plugin does.`;
+  const repo = repoVersion(root);
   try {
     cpSync(template, target, { recursive: true, filter: (path) => basename(path) !== 'node_modules' });
     renameTree(target, name);
     const manifestPath = join(target, '.claude-plugin', 'plugin.json');
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>;
     manifest.description = summary;
+    if (repo !== null) manifest.version = repo;
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    if (repo !== null) setVersion(join(target, 'package.json'), repo);
     plugins.push({ name, source: `./plugins/${name}`, description: summary });
     writeFileSync(join(root, MARKETPLACE_PATH), `${JSON.stringify(marketplace, null, 2)}\n`);
   } catch (error) {

@@ -172,6 +172,42 @@ test('new: a checkout without templates/plugin exits 1', async () => {
   assert.match(stderr, /templates\/plugin not found/);
 });
 
+/** The `version` of a plugin's plugin.json and package.json. */
+function versions(root: string, name: string): [unknown, unknown] {
+  const dir = join(root, 'plugins', name);
+  return [
+    JSON.parse(readFileSync(join(dir, '.claude-plugin', 'plugin.json'), 'utf8')).version,
+    JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).version,
+  ];
+}
+
+/** Sets a fixture plugin's version in both its plugin.json and package.json. */
+function setVersions(root: string, name: string, version: string): void {
+  for (const rel of [join('.claude-plugin', 'plugin.json'), 'package.json']) {
+    const path = join(root, 'plugins', name, rel);
+    writeFileSync(path, JSON.stringify({ ...JSON.parse(readFileSync(path, 'utf8')), version }, null, 2));
+  }
+}
+
+test('new: the plugin starts at the version the marketplace plugins share (the template\'s own when there are none)', async () => {
+  const f = checkout();
+  const template = JSON.parse(readFileSync(join(f.root, 'templates', 'plugin', '.claude-plugin', 'plugin.json'), 'utf8')).version;
+  assert.equal((await call(f.root, ['new', 'first-one'])).code, EXIT.ok);
+  assert.deepEqual(versions(f.root, 'first-one'), [template, template]);
+
+  scaffoldInto(f, 'second-one');
+  setVersions(f.root, 'first-one', '1.2.0');
+  setVersions(f.root, 'second-one', '1.2.0');
+  const { code, stderr } = await call(f.root, ['new', 'log-tools']);
+  assert.equal(code, EXIT.ok, stderr);
+  assert.deepEqual(versions(f.root, 'log-tools'), ['1.2.0', '1.2.0']);
+
+  // versions that differ (factory-dev check refuses that): the highest, compared numerically
+  setVersions(f.root, 'second-one', '1.10.0');
+  assert.equal((await call(f.root, ['new', 'later-tools'])).code, EXIT.ok);
+  assert.deepEqual(versions(f.root, 'later-tools'), ['1.10.0', '1.10.0']);
+});
+
 test('npm run new-plugin runs the same scaffold (the root script, in a fixture checkout)', () => {
   const f = checkout();
   const rootPkg = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8'));
@@ -185,6 +221,10 @@ test('npm run new-plugin runs the same scaffold (the root script, in a fixture c
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout, "Created plugins/log-tools and added 'log-tools' to .claude-plugin/marketplace.json.\n");
   assert.equal(JSON.parse(readFileSync(join(f.root, 'plugins', 'log-tools', '.claude-plugin', 'plugin.json'), 'utf8')).description, 'Via npm.');
+  // with plugins at 1.2.0, npm run new-plugin starts the next one at 1.2.0 too
+  setVersions(f.root, 'log-tools', '1.2.0');
+  assert.equal(spawnSync('npm', ['run', '--silent', 'new-plugin', '--', 'more-tools'], { cwd: f.root, env: cleanEnv(), encoding: 'utf8' }).status, 0);
+  assert.deepEqual(versions(f.root, 'more-tools'), ['1.2.0', '1.2.0']);
   const taken = spawnSync('npm', ['run', '--silent', 'new-plugin', '--', 'log-tools'], { cwd: f.root, env: cleanEnv(), encoding: 'utf8' });
   assert.equal(taken.status, 1);
   const bad = spawnSync('npm', ['run', '--silent', 'new-plugin', '--', 'Bad_Name'], { cwd: f.root, env: cleanEnv(), encoding: 'utf8' });
