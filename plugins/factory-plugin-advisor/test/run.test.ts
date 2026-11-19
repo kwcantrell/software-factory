@@ -22,7 +22,7 @@ test('--help prints usage on stdout', () => {
   const { code, stdout } = box.call(['--help']);
   assert.equal(code, EXIT.ok);
   assert.match(stdout, new RegExp(`^Usage: ${CLI_NAME} `));
-  for (const c of ['record', 'list', 'show', 'suggest', 'dismiss', 'file', 'hook', '--json']) assert.match(stdout, new RegExp(c));
+  for (const c of ['record', 'list', 'show', 'suggest', 'dismiss', 'file', 'hook', 'stations', 'stations suggest', 'stations apply', 'stations dismiss', '--json']) assert.match(stdout, new RegExp(c));
 });
 
 test('--version prints the package version', () => {
