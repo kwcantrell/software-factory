@@ -24,7 +24,8 @@ export const SHIPPED = join(PLUGIN_ROOT, 'agents');
 /** Where a project keeps its agents, relative to the repository root. */
 export const AGENTS_DIR = join('.claude', 'agents');
 export const INVOCATION = 'npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory';
-const HUMAN_ONLY = ['merge', 'approve', 'rework'] as const;
+/** Human-gated commands (src/gate.ts) no station may pre-approve or run. */
+const HUMAN_ONLY = ['merge', 'approve', 'rework', 'close'] as const;
 const NAME = /^[a-z0-9][a-z0-9-]*$/;
 
 export type Kind = 'builder' | 'verifier' | 'reviewer';
@@ -124,7 +125,7 @@ function frontmatter(
   return { fields, rules, body: text.slice(m[0].length) };
 }
 
-/** Permission modes that keep the merge, approve and rework prompts (an absent key is `default`). */
+/** Permission modes that keep the human-gate prompts (merge, approve, rework, close) (an absent key is `default`). */
 const SAFE_MODES = ['default', 'acceptEdits', 'plan', 'dontAsk'];
 
 /**
@@ -178,7 +179,7 @@ export function checkAgent(file: string, stem: string, text: string): Problem[] 
   }
   if (!fm.fields.description) add('frontmatter has no description', 'add a description: line saying what the station does');
 
-  // The line's human gates: no agent may pre-approve merge, approve or rework, or bypass the prompt.
+  // The line's human gates: no agent may pre-approve merge, approve, rework or close, or bypass the prompt.
   // Every Bash(...) rule in the frontmatter counts, whatever key or YAML form it is written in.
   for (const [key, rule] of fm.rules) {
     const inner = rule.slice('Bash('.length, -1).trim();
@@ -196,12 +197,12 @@ export function checkAgent(file: string, stem: string, text: string): Problem[] 
   const mode = fm.fields.permissionMode;
   if (mode !== undefined && !SAFE_MODES.includes(mode)) {
     add(
-      `frontmatter permissionMode '${mode}' may skip the merge, approve and rework permission prompts`,
+      `frontmatter permissionMode '${mode}' may skip the human-gate permission prompts (merge, approve, rework, close)`,
       `remove permissionMode, or use one of ${SAFE_MODES.join(', ')} on one line`,
     );
   }
   if ('hooks' in fm.fields) {
-    add('frontmatter has hooks, which could answer the merge, approve and rework prompts', 'remove hooks; a station needs none');
+    add('frontmatter has hooks, which could answer the human-gate prompts (merge, approve, rework, close)', 'remove hooks; a station needs none');
   }
   // A lint, not the boundary: indirection (`c=merge; factory $c`) gets past it. The PreToolUse hook
   // (src/gate.ts) is what stops a station running a human-only command.

@@ -442,3 +442,48 @@ for (const cmd of ['built', 'proof', 'verdict'] as const) {
     assert.notEqual(r.job(id).stage, stage);
   }));
 }
+
+test('status, stats and followup list skip a job whose job.json fails validation, one warning each; acting on it by id is refused', withRepo((r) => {
+  const good = r.newJob('Good one');
+  r.ok(['followup', 'add', good, '--by', 'human', 'still listed']);
+  const broken = r.newJob('Broken JSON');
+  const odd = r.newJob('Odd shape');
+  const last = r.newJob('Good too');
+  // A terminal escape in the file: the warning quotes the parse error, which quotes the file.
+  writeFileSync(join(r.jobDir(broken), 'job.json'), '{"id": \x1b[31mRED');
+  const shape = r.job(odd);
+  shape.stage = 'shipped-somewhere';
+  writeFileSync(join(r.jobDir(odd), 'job.json'), JSON.stringify(shape));
+  const warned = (stderr: string): void => {
+    const lines = stderr.split('\n').filter(Boolean);
+    assert.equal(lines.length, 2, stderr);
+    assert.doesNotMatch(stderr, /\x1b/, 'no raw control characters from job.json reach the terminal');
+    assert.match(lines[0] as string, /\\u001b/);
+    assert.match(lines[0] as string, new RegExp(`^factory: skipping .*/jobs/${broken}: .*job\\.json is not valid JSON`));
+    assert.match(lines[1] as string, new RegExp(`^factory: skipping .*/jobs/${odd}: .*'stage' is "shipped-somewhere"`));
+  };
+  let p = r.factory(['status']);
+  assert.equal(p.status, 0, p.stderr);
+  warned(p.stderr);
+  assert.match(p.stdout, new RegExp(good));
+  assert.match(p.stdout, new RegExp(last));
+  assert.doesNotMatch(p.stdout, new RegExp(`${broken}|${odd}`));
+  p = r.factory(['status', '--json']);
+  assert.equal(p.status, 0, p.stderr);
+  assert.deepEqual(JSON.parse(p.stdout).map((j: { id: string }) => j.id), [good, last]);
+  warned(p.stderr);
+  p = r.factory(['stats', '--json']);
+  assert.equal(p.status, 0, p.stderr);
+  assert.equal(JSON.parse(p.stdout).jobs, 2);
+  warned(p.stderr);
+  p = r.factory(['followup', 'list']);
+  assert.equal(p.status, 0, p.stderr);
+  assert.match(p.stdout, /still listed/);
+  warned(p.stderr);
+  for (const args of [['status', broken], ['note', broken, 'x'], ['followup', 'list', broken], ['path', odd], ['close', odd]]) {
+    const q = r.factory(args);
+    assert.equal(q.status, 1, `${args.join(' ')}: ${q.stdout}${q.stderr}`);
+    assert.equal(q.stdout, '');
+    assert.match(q.stderr, /is not valid JSON|is not a job record the factory wrote/);
+  }
+}));

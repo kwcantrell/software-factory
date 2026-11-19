@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import { PLUGIN } from './helpers.ts';
 
 const INVOCATION = 'npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory';
-const HUMAN_ONLY = ['merge', 'approve', 'rework'];
+const HUMAN_ONLY = ['merge', 'approve', 'rework', 'claim', 'close'];
 // The old CLI path, its interpreter, the old hook script and the PATH fallback. Spelled in pieces so
 // that grepping the plugin for those words finds nothing, this file included.
 const STALE = new RegExp(['bin/' + 'factory', 'not on PATH', 'pyth' + 'on3', 'human-gate\\.' + 'sh'].join('|'));
@@ -44,7 +44,7 @@ test('every npx command line in a ```sh block uses the exact invocation', () => 
   }
 });
 
-test('allowed-tools pre-approves only npx station commands, never merge, approve or rework', () => {
+test('allowed-tools pre-approves only npx station commands, never merge, approve, rework, claim or close', () => {
   for (const file of skills) {
     const allowed = frontmatter(readFileSync(file, 'utf8'))['allowed-tools'];
     if (allowed === undefined) continue;

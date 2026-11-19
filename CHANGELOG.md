@@ -8,6 +8,17 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- Remote factory: signed state commits, verified at the merge gate. Every state commit the CLI makes
+  in remote mode is signed with the person's own SSH key (`git commit -S` with `gpg.format ssh` and
+  `user.signingkey`); a command that would change state refuses before changing anything, naming
+  the git settings to set, when signing is not set up. `factory merge` walks the state branch
+  history of the job's directory and refuses (naming the commit and why) unless every commit is
+  signed by a key in the allowed-signers file named by the new `remote.allowed_signers` key, read
+  as committed at HEAD of the project checkout, never from the state branch; it also refuses a
+  `job.json` edited in the state checkout but not committed. Without `allowed_signers` merge
+  refuses and says how to set it up; the new `remote.unsigned_ok: true` turns signing and the check
+  off, which the README warns against. SSH signing only: merge refuses a state commit with an
+  OpenPGP or X.509 signature, and state commits replayed after a lost push race are re-signed.
 - factory-plugin-advisor: opt-in team sharing. With `factory.json` `"advisor": {"share": true}` and a
   remote factory, `record` and the hook also append each occurrence (already redacted and masked) to
   `advisor/occurrences.jsonl` on the state branch, and the issue state moves to
@@ -62,9 +73,18 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 - `factory config` prints the new `remote` key (`null` by default), and the dashboard server no
   longer serves anything under a `.git` directory.
+- `factory close` is a human gate: the `PreToolUse` hook makes it a permission prompt like `merge`,
+  `approve`, `rework` and `claim`, and `factory agents check` fails a station agent that
+  pre-approves or runs it. `/factory:ship <id> reject` still closes the job, after the person
+  confirms the prompt.
 
 ### Fixed
 
+- One `job.json` that is not valid JSON or not the shape the CLI writes (say, pushed to a remote
+  factory's state branch) no longer makes `status`, `stats` and `followup list` fail for every job:
+  they skip it with one stderr warning naming its directory and why, and exit 0; the dashboard
+  skips it too, warning once in the browser console. A command that acts on that job by id refuses
+  it with the reason instead of crashing.
 - factory-plugin-advisor: with sharing on, an occurrence could be lost when two `record` or hook
   processes of the same user ran at once for the first time: both set up the bare clone in the config
   dir, one failed (`could not lock config file`) before writing the occurrence to the queue, and it

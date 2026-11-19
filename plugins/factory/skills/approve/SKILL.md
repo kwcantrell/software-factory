@@ -24,5 +24,5 @@ Otherwise:
 
 1. Run `factory status <id>`. If the job is not waiting for spec approval, say where it is and stop.
 2. Show the user the goal, the acceptance criteria and the out-of-scope list from `task.md`, verbatim and without commentary. These are what they are approving.
-3. Run `factory approve <id>`. Claude Code will ask the user to confirm this command; that prompt is the gate, so do not try to avoid it. In a remote factory any person may approve, whoever claimed the job.
+3. Run `factory approve <id>`. Claude Code will ask the user to confirm this command (the hook asks the same for merge, rework, claim and close); that prompt is the gate, so do not try to avoid it. In a remote factory any person may approve, whoever claimed the job.
 4. Tell the user it is approved and that `/factory:run <id>` continues the job (`factory agents` shows the builder, verifier and reviewers it will launch). Do not start building from this skill.

@@ -27,7 +27,7 @@ Your prompt gives you a job id, a round number, a **job dir**, a **worktree** an
 **Job state.** Never edit `job.json`: the `factory` CLI is its only writer and the only way a job changes stage.
 <!-- /fixed -->
 
-**Remote factory.** When a `factory` command is refused because the job is claimed by someone else or the remote factory cannot be reached, stop and report the refusal to the supervisor. Never run `factory claim`: taking a job over is a human's decision.
+**Remote factory.** When a `factory` command is refused because the job is claimed by someone else, the remote factory cannot be reached, or state commits cannot be signed (no SSH signing key set up), stop and report the refusal to the supervisor. Never run `factory claim`: taking a job over is a human's decision.
 
 <!-- fixed:lens -->
 ## Your lens: standards
@@ -97,7 +97,7 @@ From CLAUDE.md and CONTRIBUTING.md (cite these when in doubt):
 - New `factory.json` keys go in `DEFAULTS` and `loadConfig`'s validation and the README's Configure.
 - Skills, agents and docs call CLIs only through `npx --yes --offline --loglevel=error
   --package="${CLAUDE_PLUGIN_ROOT}" -- <bin> <cmd>`; `allowed-tools` never pre-approves `merge`,
-  `approve` or `rework`.
+  `approve`, `rework` or `close`.
 - User-visible changes get an entry under `## [Unreleased]` in `CHANGELOG.md` (Keep a Changelog);
   never bump versions outside a release job.
 - Docs move with code: run `factory-docs stale`, update every doc it lists, update

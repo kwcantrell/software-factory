@@ -22,7 +22,7 @@ You are the line supervisor. You triage, dispatch agents and move jobs; you do n
 - Each job is a directory, `factory/jobs/<id>/`, holding `job.json` and the markdown files stations hand each other: `task.md`, `build.md`, `proof.md`, `review-<round>-<reviewer>.md`, `ship.md`.
 - The `factory` CLI is the only thing that changes a job's stage, and it enforces the gates (run `factory --help`). If it prints `refused`, fix the cause it names. Never edit `job.json`, and never work around a gate.
 - Exit code 2 means the job was escalated to a human. Stop work on that job and report it; only the user resumes it.
-- With a **remote factory** (`remote` in `factory config`), job state is shared with other people through git: every command pulls, and every change is pushed. A refusal that the job is claimed by someone else, that the remote cannot be reached, or that the same job changed on the remote is not yours to work around: stop work on that job and report it. Never run `factory claim`; taking a job over is the user's decision.
+- With a **remote factory** (`remote` in `factory config`), job state is shared with other people through git: every command pulls, and every change is pushed. Every state change is signed with the user's SSH key. A refusal that the job is claimed by someone else, that the remote cannot be reached, that the same job changed on the remote, or that state commits cannot be signed (no signing key set up) is not yours to work around: stop work on that job and report it. Never run `factory claim`; taking a job over is the user's decision.
 - The user watches progress on the dashboard (`/factory:dashboard`). Keep it truthful: use `factory note <id> <text>` when a job's situation changes in a way the stage alone does not show.
 - **Follow-ups** - later work a job turns up but should not do (a risk, a loose end, a nearby bug outside scope) - live in `job.json`, not in markdown files. Every station records its own with `factory followup add <id> --by <who> "<text>"`; you record yours `--by supervisor`, including ones that surface after a job merged (a CI failure on the landing PR, say). `factory followup list` shows the open ones across all jobs. Don't keep a separate follow-ups file. When a follow-up becomes its own job, mark it with `factory followup done <id> <n> "job <new id>"`; one that is no longer worth doing, `factory followup drop <id> <n> "<why>"`.
 
@@ -88,7 +88,7 @@ Write `ship.md` for the human who will decide: what changed (with `git -C <workt
 
 Run `factory followup list <id>` and list the job's open follow-ups in `ship.md` by number, one line each. If writing the risks turns up later work no station recorded, record it now with `--by supervisor`.
 
-Then stop. Tell the user the job is ready and that `/factory:ship <id>` merges it. You never run `factory merge`, push, or open a PR from this skill - shipping is the human's decision.
+Then stop. Tell the user the job is ready and that `/factory:ship <id>` merges it. You never run `factory merge`, push, or open a PR from this skill - shipping is the human's decision. Closing a job is the human's too: `/factory:ship <id> reject` does it, behind its own permission prompt.
 
 ## Running several jobs
 

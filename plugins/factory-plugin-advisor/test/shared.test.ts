@@ -55,6 +55,11 @@ function user(name: string, factoryJson: unknown, extra: Env = {}): User {
   git(['init', '-q', '-b', 'main', project], project);
   box.env.FACTORY_DIR = join(project, 'factory');
   writeFileSync(join(project, 'factory.json'), `${JSON.stringify(factoryJson)}\n`);
+  // The remote factory signs its state commits: a throwaway SSH key, set in the project's own git config.
+  const key = join(box.dir, 'signing_ed25519');
+  assert.equal(spawnSync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-f', key]).status, 0, 'ssh-keygen');
+  git(['config', 'gpg.format', 'ssh'], project);
+  git(['config', 'user.signingkey', key], project);
   const factory = (args: string[]): string => {
     const env = { PATH: process.env.PATH, HOME: box.dir, GIT_CONFIG_NOSYSTEM: '1', FACTORY_DIR: box.env.FACTORY_DIR, GIT_AUTHOR_NAME: name, GIT_AUTHOR_EMAIL: `${login}@example.com`, GIT_COMMITTER_NAME: name, GIT_COMMITTER_EMAIL: `${login}@example.com` };
     const p = spawnSync(process.execPath, [FACTORY_CLI, ...args], { cwd: project, env: env as NodeJS.ProcessEnv, encoding: 'utf8' });

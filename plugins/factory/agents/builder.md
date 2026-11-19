@@ -14,7 +14,7 @@ Your prompt gives you a job id, a **job dir** (handoff files) and a **worktree**
 
 **Job state.** Never edit `job.json`: the `factory` CLI is its only writer and the only way a job changes stage.
 
-**Remote factory.** When a `factory` command is refused because the job is claimed by someone else or the remote factory cannot be reached, stop and report the refusal to the supervisor. Never run `factory claim`: taking a job over is a human's decision.
+**Remote factory.** When a `factory` command is refused because the job is claimed by someone else, the remote factory cannot be reached, or state commits cannot be signed (no SSH signing key set up), stop and report the refusal to the supervisor. Never run `factory claim`: taking a job over is a human's decision.
 
 ## Rules
 

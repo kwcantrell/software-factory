@@ -38,6 +38,7 @@ import {
   pullForRead,
   RaceLost,
   remoteProblem,
+  REMOTE_DEFAULTS,
   remotePush,
   remoteStatus,
   resolveRemote,
@@ -47,6 +48,7 @@ import {
   PUSH_ATTEMPTS,
 } from './remote.ts';
 import type { Person, RemoteConfig } from './remote.ts';
+import { gitSigning, noSignersProblem, UNSIGNED, useSigning, verifyJobHistory } from './signing.ts';
 
 export { Escalated, now, Refused } from './errors.ts';
 export type { Person, RemoteConfig } from './remote.ts';
@@ -61,7 +63,10 @@ export interface Config {
   /** Repo-relative directory of living behavior specs, if the project keeps them. Intake reads the
    * specs a change touches and gives each one an acceptance criterion. */
   specs_dir: string | null;
-  /** Where the job state is shared (a git URL or path and a branch), or null for a local factory. */
+  /**
+   * Where the job state is shared (a git URL or path and a branch), or null for a local factory. Its
+   * optional keys (`allowed_signers`, `unsigned_ok`) default to REMOTE_DEFAULTS when it is set.
+   */
   remote: RemoteConfig | null;
   /**
    * factory-plugin-advisor settings. `share`: with a `remote`, the advisor also keeps its redacted
@@ -315,6 +320,15 @@ export function loadConfig(root: string): Config {
     checkConfigKey(path, key, value);
     (cfg as unknown as Record<string, unknown>)[key] = value;
   }
+  if (cfg.remote) {
+    const r = cfg.remote;
+    cfg.remote = {
+      url: r.url,
+      branch: r.branch,
+      allowed_signers: r.allowed_signers ?? REMOTE_DEFAULTS.allowed_signers,
+      unsigned_ok: r.unsigned_ok ?? REMOTE_DEFAULTS.unsigned_ok,
+    };
+  }
   return cfg;
 }
 
@@ -432,10 +446,68 @@ export function resolve(root: string, ref: string): string {
   throw new Refused(hits.length === 0 ? `no job matches '${ref}'` : `'${ref}' is ambiguous: ${hits.join(', ')}`);
 }
 
+/**
+ * A job's record. Refused (naming the file and why) when it is not valid JSON or not the shape the
+ * CLI writes, so a command acting on the job stops cleanly; listings skip it (loadListed).
+ */
 export function load(root: string, jobId: string): Job {
-  const job = JSON.parse(readFileSync(join(root, 'jobs', jobId, 'job.json'), 'utf8')) as Job;
+  const where = join(root, 'jobs', jobId, 'job.json');
+  let data: unknown;
+  try {
+    data = JSON.parse(readFileSync(where, 'utf8'));
+  } catch (error) {
+    throw new Refused(`${where} is not valid JSON (${error instanceof Error ? error.message : String(error)}); fix or remove it`);
+  }
+  const job = checkJob(where, jobId, data);
   if (attached(root)) trustRemoteJob(root, jobId, job);
   return job;
+}
+
+/**
+ * The fields commands and listings read, checked to be the types the CLI writes. The dashboard's
+ * `jobProblem` (dashboard/index.html) is a copy of these rules: change both together.
+ */
+function checkJob(where: string, jobId: string, data: unknown): Job {
+  const bad = (what: string): Refused => new Refused(`${where} is not a job record the factory wrote: ${what}; fix or remove it`);
+  const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+  if (!isObj(data)) throw bad('it is not a JSON object');
+  if (data.id !== jobId) throw bad(`its id is ${JSON.stringify(data.id)}, not its directory's name "${jobId}"`);
+  for (const key of ['title', 'stage', 'status', 'created']) {
+    if (typeof data[key] !== 'string') throw bad(`'${key}' is not a string`);
+  }
+  if (!(STAGES as readonly unknown[]).includes(data.stage)) throw bad(`'stage' is ${JSON.stringify(data.stage)}, not one of ${STAGES.join(', ')}`);
+  if (!Array.isArray(data.history) || !data.history.every((h) => isObj(h) && typeof h.event === 'string' && typeof h.at === 'string')) {
+    throw bad("'history' is not a list of {at, stage, event} entries");
+  }
+  if (!Array.isArray(data.rounds) || !data.rounds.every((r) => isObj(r) && isObj(r.reviewers) && Object.values(r.reviewers).every(isObj))) {
+    throw bad("'rounds' is not a list of {n, reviewers} entries");
+  }
+  if (data.followups !== undefined && !(Array.isArray(data.followups) && data.followups.every(isObj))) {
+    throw bad("'followups' is not a list");
+  }
+  return data as unknown as Job;
+}
+
+/** `text` with its control characters (terminal escapes, newlines) shown as `\\uXXXX`. */
+const printable = (text: string): string =>
+  text.replace(/[\u0000-\u001f\u007f-\u009f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+
+/**
+ * Every job in `ids` that loads; one stderr warning per job that does not (its directory and why),
+ * so one bad job.json on a shared state branch cannot take a listing down for every other job.
+ */
+function loadListed(root: string, ids: string[], io: Io): Job[] {
+  const jobs: Job[] = [];
+  for (const id of ids) {
+    try {
+      jobs.push(load(root, id));
+    } catch (error) {
+      if (!(error instanceof Refused)) throw error;
+      // The reason can quote the file, which whoever pushes to the state branch wrote: no raw control characters.
+      io.stderr(`factory: skipping ${printable(`${join(root, 'jobs', id)}: ${error.message}`)}\n`);
+    }
+  }
+  return jobs;
 }
 
 /**
@@ -471,6 +543,21 @@ export function remoteOf(root: string, cfg: Config): RemoteConfig | null {
   return cfg.remote ? resolveRemote(cfg.remote, dirname(configPath(root))) : null;
 }
 
+/**
+ * Set how this command signs the state commits it makes (src/signing.ts): signed with the person's
+ * SSH key in remote mode, unless `unsigned_ok`. With `required`, refuse before anything changes when
+ * signing is required but not set up; a read command (not required) only fails if it has to commit.
+ */
+function signFor(remote: RemoteConfig | null, required: boolean): void {
+  if (remote === null || remote.unsigned_ok === true) {
+    useSigning(UNSIGNED);
+    return;
+  }
+  const signing = gitSigning(mainCheckout(), remote.allowed_signers ?? null);
+  useSigning(signing);
+  if (required && signing.problem !== null) throw new Refused(signing.problem);
+}
+
 /** Commands any person may run on a job someone else has claimed: the human gates, and `claim`. */
 export const ANYONE: ReadonlySet<string> = new Set(['approve', 'merge', 'rework', 'close', 'claim']);
 
@@ -504,6 +591,7 @@ export function editing<T>(root: string, a: Args, command: string, fn: (job: Job
       return result;
     }
     const me = identity();
+    signFor(remote, true);
     pull(root, remote, () => me);
     const id = resolve(root, ref);
     const snap = snapshot(join(root, 'jobs', id));
@@ -633,6 +721,7 @@ export const cmdInit: Command = (root, a, io) => {
   const remote = remoteOf(root, a.cfg);
   let state = '';
   if (remote) {
+    signFor(remote, true);
     const how = locked(root, () => {
       const result = attach(root, remote, identity);
       pull(root, remote, identity);
@@ -694,6 +783,7 @@ export const cmdNew: Command = (root, a, io) => {
     // Two people creating jobs at once: whoever pushes second rolls back, pulls the other's job
     // and allocates the next number, so ids never collide and neither job is lost.
     const me = identity();
+    signFor(remote, true);
     pull(root, remote, () => me);
     // Never replay a `new` onto the remote's commits: its number may be taken there by now.
     for (let attempt = 1; attempt <= PUSH_ATTEMPTS; attempt++) {
@@ -921,9 +1011,39 @@ function dropWorktree(job: Job, keepBranch: boolean): void {
   job.worktree = null;
 }
 
+/**
+ * Remote mode: refuse unless every state commit that touched the job's directory is signed by a key
+ * in the allowed-signers file, as committed at HEAD of the project checkout (never the state branch,
+ * whose pushers it judges, nor an uncommitted edit). The job.json this merge reads must be the one
+ * committed. Off with `unsigned_ok`; a remote with neither key is refused with how to set it up.
+ */
+function requireSignedHistory(root: string, cfg: Config, job: Job): void {
+  const remote = cfg.remote;
+  if (!remote || remote.unsigned_ok === true) return;
+  if (!remote.allowed_signers) throw new Refused(noSignersProblem(configPath(root)));
+  const main = mainCheckout();
+  const path = remote.allowed_signers;
+  const add = `commit it, listing each person's SSH public key ("<email> ssh-ed25519 AAAA..."), by pull request; see the README's "Remote factory" section`;
+  const entry = /^(\d+) (\w+) ([0-9a-f]+)\t/.exec(git(['--literal-pathspecs', 'ls-tree', '-z', 'HEAD', '--', path], main, false));
+  if (!entry) throw new Refused(`the allowed-signers file ${path} (factory.json remote.allowed_signers) is not committed in ${main} (HEAD): ${add}`);
+  if (entry[2] !== 'blob' || (entry[1] !== '100644' && entry[1] !== '100755')) {
+    throw new Refused(`the allowed-signers file ${path} in ${main} (HEAD) is not a regular file; ${add}`);
+  }
+  const signers = git(['cat-file', 'blob', entry[3] as string], main);
+  const dir = stateDir(root);
+  if (git(['status', '--porcelain', '--untracked-files=all', '--', `${job.id}/job.json`], dir) !== '') {
+    throw new Refused(
+      `${join(dir, job.id, 'job.json')} is not the version committed on the state branch; refusing to merge from an unverified record - ` +
+        `restore it (git -C ${dir} checkout -- ${job.id}/job.json), then retry`,
+    );
+  }
+  verifyJobHistory(dir, job.id, signers, `${path} at HEAD of ${main}`);
+}
+
 /** The human gate. hooks/hooks.json (src/human-gate.ts) makes Claude Code ask before this runs. */
 export const cmdMerge: Command = (root, a, io) => {
   const out = editing(root, a, 'merge', (job) => {
+    requireSignedHistory(root, a.cfg, job);
     requireStage(job, 'ship');
     const main = mainCheckout();
     if (git(['status', '--porcelain', '--untracked-files=no'], main)) {
@@ -1061,6 +1181,7 @@ export const cmdRemoteStatus: Command = (root, a, io) => {
 export const cmdRemotePush: Command = (root, a, io) => {
   const remote = needRemote(root, a);
   const me = identity();
+  signFor(remote, true);
   io.stdout(locked(root, () => remotePush(root, remote, me)));
 };
 
@@ -1068,6 +1189,7 @@ export const cmdRemotePush: Command = (root, a, io) => {
 export function syncForRead(root: string, a: Args, io: Io): void {
   const remote = remoteOf(root, a.cfg);
   if (!remote) return;
+  signFor(remote, false);
   const note = locked(root, () => pullForRead(root, remote, flag(a, 'offline'), identity));
   if (note) io.stderr(note.split('\n').map((line) => `factory: ${line}\n`).join(''));
 }
@@ -1129,9 +1251,9 @@ export const cmdFollowupResolve: Command = (root, a, io) => {
 export const cmdFollowupList: Command = (root, a, io) => {
   const ref = a.job as string | null;
   const all = flag(a, 'all');
-  const ids = ref ? [resolve(root, ref)] : jobIds(root);
-  const rows = ids.flatMap((i) =>
-    (load(root, i).followups ?? []).filter((f) => all || f.status === 'open').map((f) => ({ ...f, job: i })),
+  const jobs = ref ? [load(root, resolve(root, ref))] : loadListed(root, jobIds(root), io);
+  const rows = jobs.flatMap((j) =>
+    (j.followups ?? []).filter((f) => all || f.status === 'open').map((f) => ({ ...f, job: j.id })),
   );
   if (flag(a, 'json')) {
     io.stdout(`${dumps(rows)}\n`);
@@ -1154,8 +1276,7 @@ const MARK: Record<string, string> = { approve: '+', changes: 'x' };
 
 export const cmdStatus: Command = (root, a, io) => {
   const ref = a.job as string | null;
-  const ids = ref ? [resolve(root, ref)] : jobIds(root);
-  const jobs = ids.map((i) => load(root, i));
+  const jobs = ref ? [load(root, resolve(root, ref))] : loadListed(root, jobIds(root), io);
   if (flag(a, 'json')) {
     io.stdout(`${dumps(ref ? jobs[0] : jobs)}\n`);
     return;
@@ -1233,7 +1354,7 @@ export function stats(jobs: Job[]): Stats {
 }
 
 export const cmdStats: Command = (root, a, io) => {
-  const st = stats(jobIds(root).map((i) => load(root, i)));
+  const st = stats(loadListed(root, jobIds(root), io));
   if (flag(a, 'json')) {
     io.stdout(`${dumps(st)}\n`);
     return;

@@ -27,6 +27,7 @@
       "plugins/factory/src/gate.ts",
       "plugins/factory/src/factory.ts",
       "plugins/factory/src/remote.ts",
+      "plugins/factory/src/signing.ts",
       "plugins/factory/src/agents.ts",
       "plugins/factory/templates/agents/**"
     ],

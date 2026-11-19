@@ -210,10 +210,36 @@ async function listDir(url) {
   return [...doc.querySelectorAll('a')].map(a => a.getAttribute('href'))
     .filter(h => h && !/^([?/#.]|[a-z]+:)/i.test(h));
 }
+// Why a job.json is not one the board can show ('' when it is), as the CLI's listings judge it (a copy
+// of checkJob in src/factory.ts: change both together): one
+// bad job on a shared state branch is skipped, never allowed to take the board down. Older job.json
+// files without followups (or owner) are fine.
+function jobProblem(j, dir) {
+  const obj = v => typeof v === 'object' && v !== null && !Array.isArray(v);
+  if (!obj(j)) return 'it is not a JSON object';
+  if (j.id !== dir) return `its id is ${JSON.stringify(j.id)}, not its directory's name`;
+  for (const k of ['title', 'stage', 'status', 'created']) if (typeof j[k] !== 'string') return `'${k}' is not a string`;
+  if (!STAGES.includes(j.stage)) return `'stage' is ${JSON.stringify(j.stage)}`;
+  if (!Array.isArray(j.history) || !j.history.every(h => obj(h) && typeof h.event === 'string' && typeof h.at === 'string')) return "'history' is not a list of entries";
+  if (!Array.isArray(j.rounds) || !j.rounds.every(r => obj(r) && obj(r.reviewers) && Object.values(r.reviewers).every(obj))) return "'rounds' is not a list of rounds";
+  if (j.followups !== undefined && !(Array.isArray(j.followups) && j.followups.every(obj))) return "'followups' is not a list";
+  return '';
+}
+const warnedJobs = new Set();
 async function loadJobs() {
   const dirs = (await listDir('jobs/')).filter(h => h.endsWith('/'));
-  const loaded = await Promise.all(dirs.map(d => get('jobs/' + d + 'job.json').then(r => r.json()).catch(() => null)));
-  return loaded.filter(j => j && j.id && STAGES.includes(j.stage));
+  const loaded = await Promise.all(dirs.map(d => get('jobs/' + d + 'job.json').then(r => r.json())
+    .then(j => ({ d, j }), e => ({ d, err: String((e && e.message) || e) }))));
+  const jobs = [];
+  for (const { d, j, err } of loaded) {
+    const dir = decodeURIComponent(d.slice(0, -1));
+    // No job.json at all (advisor/, a job being created) is not a bad job: skip it quietly.
+    if (err !== undefined && / 404$/.test(err)) continue;
+    const why = err !== undefined ? `job.json cannot be read as JSON (${err})` : jobProblem(j, dir);
+    if (!why) { jobs.push(j); warnedJobs.delete(dir); continue; }
+    if (!warnedJobs.has(dir)) { warnedJobs.add(dir); console.warn(`factory dashboard: skipping jobs/${dir}/: ${why}`); }
+  }
+  return jobs;
 }
 
 // ---- board
