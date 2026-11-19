@@ -1,6 +1,6 @@
 {
   "name": "factory-docs",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Keeps the software-factory repository's docs in sync with its code: a checked-in map from each doc to the code it describes, which docs cover a file, which docs a change left stale, a lint for the map and for CLI command coverage, and the gate CI runs.",
   "author": { "name": "Kalen Cantrell" },
   "homepage": "https://github.com/kwcantrell/software-factory",

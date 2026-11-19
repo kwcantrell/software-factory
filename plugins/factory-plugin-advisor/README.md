@@ -139,4 +139,4 @@ hex, ids and numbers masked. So "refused: 005-port-the-factory is at stage build
 
 ## Versioning
 
-Every plugin in this marketplace carries the same version, the repository's. `CHANGELOG.md` lists what changed in each release.
+Every plugin in this marketplace carries the same version, the repository's. `CHANGELOG.md` lists what changed in each release. A patch release carries fixes only.
