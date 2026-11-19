@@ -86,7 +86,7 @@ already redacted: text after a typed marker (`Cookie: a=[redacted] x; b=secret`)
   word anywhere, unless it is shorter than 3 characters, a common word (`root`, `admin`, `user`,
   `runner`, `node`, `ubuntu`), or, ignoring case, a word the advisor writes itself: a marketplace
   plugin or CLI bin name (read from the marketplace at run time, e.g. `factory`, `factory-dev`) or
-  a `factory` subcommand (`new`, `start`, `built`, `proof`, `round`, `verdict`, `merge`, `agents` and the
+  a `factory` subcommand (`new`, `start`, `built`, `proof`, `round`, `verdict`, `merge`, `claim`, `remote`, `agents` and the
   rest of `factory --help`) or a `factory followup` subcommand (`add`, `list`, `done`, `drop`, as
   `factory followup --help` lists them). Masking those would turn every summary about that plugin
   or command into `[user] proof exited 1` and change its signature. The home part of such a user's paths
