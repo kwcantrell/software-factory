@@ -434,6 +434,30 @@ function requireFile(root: string, job: Job, name: string): string {
   return path;
 }
 
+/**
+ * Refuse while an untracked copy of a station's handoff file sits at the root of the main checkout or
+ * of the job's worktree. Handoff files belong only in the job dir; a stray copy is swept into a
+ * commit by `git add -A`. A tracked file of the same name is the project's own and is left alone.
+ */
+function requireNoStray(root: string, job: Job, name: string): void {
+  const wt = job.worktree && existsSync(job.worktree) ? job.worktree : null;
+  let main: string | null = null;
+  const p = run('git', ['worktree', 'list', '--porcelain'], wt ?? undefined);
+  if (p.status === 0 && p.stdout.startsWith('worktree ')) {
+    main = (p.stdout.split(/\r?\n/)[0] ?? '').slice('worktree '.length);
+  }
+  const roots = [...new Set([main, wt].filter((d): d is string => d !== null))];
+  for (const dir of roots) {
+    const path = join(dir, name);
+    if (!existsSync(path)) continue;
+    const tracked = run('git', ['--literal-pathspecs', 'ls-files', '--error-unmatch', '--', name], dir);
+    if (tracked.status === 0) continue;
+    throw new Refused(
+      `stray ${path} is an untracked copy of a handoff file that belongs only in ${join(root, 'jobs', job.id)} - move or delete it, then retry`,
+    );
+  }
+}
+
 function requireContract(root: string, job: Job): string {
   const path = requireFile(root, job, 'task.md');
   if (!/^#+\s*acceptance criteria/im.test(readFileSync(path, 'utf8'))) {
@@ -578,6 +602,7 @@ export const cmdBuilt: Command = (root, a, io) => {
   const id = editing(root, s(a, 'job'), (job) => {
     requireStage(job, 'build');
     requireFile(root, job, 'build.md');
+    requireNoStray(root, job, 'build.md');
     const wt = job.worktree;
     if (git(['status', '--porcelain'], wt)) {
       throw new Refused(`uncommitted changes in ${str(wt)} - commit them; reviewers read commits`);
@@ -595,6 +620,7 @@ export const cmdProof: Command = (root, a, io) => {
   const out = editing(root, s(a, 'job'), (job) => {
     requireStage(job, 'proof');
     requireFile(root, job, 'proof.md');
+    requireNoStray(root, job, 'proof.md');
     if (a.result === 'pass') {
       move(job, 'review', 'proof passed');
     } else {
@@ -651,6 +677,7 @@ export const cmdVerdict: Command = (root, a, io) => {
       throw new Refused(`${reviewer} already recorded '${slot.verdict}' for round ${rnd.n}`);
     }
     requireFile(root, job, `review-${rnd.n}-${reviewer}.md`);
+    requireNoStray(root, job, `review-${rnd.n}-${reviewer}.md`);
     slot.verdict = verdict;
     slot.at = now();
     log(job, `round ${rnd.n}: ${reviewer} -> ${verdict}`);

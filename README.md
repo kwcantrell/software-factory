@@ -158,6 +158,7 @@ Prompts ask; the `factory` CLI (`plugins/factory/src/`, run through `npx` as abo
 - `built` refuses with uncommitted changes, no commits, or no `build.md`.
 - `proof pass|fail` is recorded by the verifier, not the builder or supervisor.
 - `verdict` refuses without the reviewer's written review; a round with any `changes` sends the job back to build, then through proof again.
+- `built`, `proof` and `verdict` each refuse while an untracked copy of their own handoff file (`build.md`, `proof.md`, `review-<round>-<reviewer>.md`) sits at the root of the main checkout or of the job's worktree, naming the stray file to move or delete: handoff files belong only in the job dir, and `git add -A` would commit a stray copy. A tracked file of the same name is the project's own and is ignored.
 - Three failed proofs or three review rounds without approval (configurable) flag the job **needs-human** and stop it. So does `factory human <job> <reason>`, which any station runs when it needs a person.
 - Exit codes: 0 ok, 1 refused (a gate was not met), 2 escalated to a human.
 - `rework` (human) sends a job in `ship` back to `build` with a request saved as `rework-<round>.md`; the builder does what it asks, and the job is proven and reviewed again in a new round.

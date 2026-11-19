@@ -1,7 +1,7 @@
 // Drives the real CLI (node src/cli.ts) as a subprocess against throwaway git repos with FACTORY_DIR
 // set. The first block is the port of the original CLI's test suite, one test per original test.
 import assert from 'node:assert/strict';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { Repo, TASK, withRepo } from './helpers.ts';
@@ -384,3 +384,53 @@ test('concurrent runs never lose an update (the job lock)', withRepo(async (r) =
   r.ok(['note', id, 'after a crash']);
   assert.equal(existsSync(join(r.fdir, '.lock.pid')), false);
 }));
+
+// ------------------------------------------------- stray handoff files outside the job dir
+
+/** A job waiting on `cmd`, with its handoff file written to the job dir: the args and file name. */
+function waitingOn(r: Repo, cmd: 'built' | 'proof' | 'verdict'): { id: string; args: string[]; name: string } {
+  const id = r.startedJob();
+  r.commitIn(id);
+  for (const name of ['build.md', 'proof.md', 'review-1-solo.md']) r.write(id, name, '# notes\n');
+  if (cmd === 'built') return { id, args: ['built', id], name: 'build.md' };
+  r.ok(['built', id]);
+  if (cmd === 'proof') return { id, args: ['proof', id, 'pass'], name: 'proof.md' };
+  r.ok(['proof', id, 'pass']);
+  r.ok(['round', id, 'solo']);
+  return { id, args: ['verdict', id, 'solo', 'approve'], name: 'review-1-solo.md' };
+}
+
+for (const cmd of ['built', 'proof', 'verdict'] as const) {
+  for (const where of ['main checkout', 'worktree'] as const) {
+    test(`${cmd} refuses while an untracked copy of its handoff file sits in the ${where}`, withRepo((r) => {
+      const { id, args, name } = waitingOn(r, cmd);
+      const dir = where === 'worktree' ? (r.job(id).worktree as string) : r.repo;
+      const stray = join(dir, name);
+      writeFileSync(stray, '# notes\n');
+      const jobJson = join(r.jobDir(id), 'job.json');
+      const before = readFileSync(jobJson, 'utf8');
+      const p = r.factory(args);
+      assert.equal(p.status, 1, p.stdout + p.stderr);
+      assert.equal(p.stdout, '');
+      assert.match(p.stderr, /refused/);
+      assert.ok(p.stderr.includes(stray), `names the stray file's full path: ${p.stderr}`);
+      assert.match(p.stderr, /move or delete it/);
+      assert.equal(readFileSync(jobJson, 'utf8'), before, 'job.json is unchanged on refusal');
+      // Deleting the stray copy is all it takes.
+      unlinkSync(stray);
+      r.ok(args);
+    }));
+  }
+
+  test(`${cmd} ignores a tracked file of the same name in the main checkout and the worktree`, withRepo((r) => {
+    const name = { built: 'build.md', proof: 'proof.md', verdict: 'review-1-solo.md' }[cmd];
+    writeFileSync(join(r.repo, name), "the project's own file\n");
+    r.git(['add', name]);
+    r.git(['commit', '-q', '-m', `Add ${name}`]);
+    const { id, args } = waitingOn(r, cmd);
+    assert.ok(existsSync(join(r.job(id).worktree as string, name)));
+    const stage = r.job(id).stage;
+    r.ok(args);
+    assert.notEqual(r.job(id).stage, stage);
+  }));
+}
