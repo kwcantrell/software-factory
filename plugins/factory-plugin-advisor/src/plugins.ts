@@ -52,6 +52,12 @@ export const FACTORY_COMMANDS = [
   'dashboard',
 ] as const;
 
+/**
+ * `factory followup`'s own subcommands, as `factory followup --help` lists them. test/plugins.test.ts
+ * fails when this differs from that help, so add a new followup subcommand here too.
+ */
+export const FACTORY_FOLLOWUP_COMMANDS = ['add', 'list', 'done', 'drop'] as const;
+
 export interface MarketplacePlugins {
   /** Plugin names, sorted. */
   plugins: string[];
@@ -120,12 +126,12 @@ function fallbackPlugins(): MarketplacePlugins {
 }
 
 /**
- * Words the advisor writes itself, lower-cased: the marketplace's plugin and bin names and the
- * `factory` subcommands. A username equal to one is not masked as a whole word (see redact.ts
+ * Words the advisor writes itself, lower-cased: the marketplace's plugin and bin names, the
+ * `factory` subcommands and `factory followup`'s subcommands. A username equal to one is not masked as a whole word (see redact.ts
  * identityOf), or every summary about that plugin or command would read `[user]`.
  */
 export function reservedNames(market: Pick<MarketplacePlugins, 'plugins' | 'bins'> = fallbackPlugins()): Set<string> {
-  return new Set([...market.plugins, ...market.bins.keys(), ...FACTORY_COMMANDS].map((n) => n.toLowerCase()));
+  return new Set([...market.plugins, ...market.bins.keys(), ...FACTORY_COMMANDS, ...FACTORY_FOLLOWUP_COMMANDS].map((n) => n.toLowerCase()));
 }
 
 /** This plugin's own folder (src/..). */

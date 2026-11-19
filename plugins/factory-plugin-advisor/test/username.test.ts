@@ -9,7 +9,7 @@ import { afterEach, test } from 'node:test';
 import { draftFields, draftTitle, issues, record, renderDraft, suggest, targetOf, type Issue } from '../src/advisor.ts';
 import { draftPersonal, draftSecrets, fileIssue } from '../src/file.ts';
 import { handleHookInput } from '../src/hook.ts';
-import { FACTORY_COMMANDS, FALLBACK_PLUGINS, marketplacePlugins, reservedNames } from '../src/plugins.ts';
+import { FACTORY_COMMANDS, FACTORY_FOLLOWUP_COMMANDS, FALLBACK_PLUGINS, marketplacePlugins, reservedNames } from '../src/plugins.ts';
 import { identityOf, maskPersonal, osIdentity, signature, type SystemIdentity } from '../src/redact.ts';
 import { EXIT } from '../src/run.ts';
 import { Store } from '../src/store.ts';
@@ -42,7 +42,7 @@ function stored(b: Sandbox): any[] {
   return existsSync(path) ? readFileSync(path, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : [];
 }
 
-/** Every marketplace plugin name and bin, and every factory subcommand. */
+/** Every marketplace plugin name and bin, every factory subcommand and every factory followup subcommand. */
 const RESERVED = [...reservedNames(marketplacePlugins(PLUGIN_ROOT, {}))];
 
 test('a username equal to a plugin, bin or factory subcommand (any case) is not masked as a word', () => {
@@ -63,6 +63,7 @@ test('the reserved names are the marketplace plugins and bins (read at run time,
   for (const p of market.plugins) assert.ok(names.has(p), p);
   for (const b of market.bins.keys()) assert.ok(names.has(b), b);
   for (const c of FACTORY_COMMANDS) assert.ok(names.has(c), c);
+  for (const c of FACTORY_FOLLOWUP_COMMANDS) assert.ok(names.has(c), c);
   // A bin the marketplace adds is reserved too.
   const custom = reservedNames({ plugins: ['new-thing'], bins: new Map([['New-Thing-Cli', 'new-thing']]) });
   assert.ok(custom.has('new-thing') && custom.has('new-thing-cli') && custom.has('verdict'));
@@ -97,6 +98,33 @@ test("with the username 'factory', home paths, $HOME, emails and mentions are st
   const summary = 'factory proof failed at /home/factory/repo/x and /srv/people/factory/y, mailed factory@example.com, cc @factory';
   json(box.call(['record', '--plugin', 'factory', '--kind', 'cli-failure', '--summary', summary, '--json']));
   assert.equal(stored(box)[0]?.summary, 'factory proof failed at ~/repo/x and ~/y, mailed [email], cc @[user]');
+});
+
+test("with a username equal to a factory followup subcommand (any case), record stores 'factory followup list printed nothing' unchanged", () => {
+  for (const user of ['list', 'add', 'done', 'drop', 'List', 'ADD', 'Done', 'dRoP']) {
+    const id = identityOf({ USER: user }, { username: user }, reservedNames());
+    assert.deepEqual(id.users, [], user);
+    box = as(user);
+    const summary = `factory followup ${user.toLowerCase()} printed nothing; factory followup ${user} again`;
+    json(box.call(['record', '--plugin', 'factory', '--kind', 'cli-failure', '--summary', summary, '--json']));
+    assert.equal(stored(box)[0]?.summary, summary, user);
+    box.cleanup();
+  }
+  box = undefined;
+});
+
+test('with a followup-subcommand username, home paths, $HOME, emails and mentions are still masked, and the pre-file check still refuses them', () => {
+  for (const user of ['list', 'add', 'done', 'drop']) {
+    box = as(user, `/srv/people/${user}`);
+    const summary = `factory followup ${user} failed at /home/${user}/repo/x and /srv/people/${user}/y, mailed ${user}@example.com, cc @${user}`;
+    json(box.call(['record', '--plugin', 'factory', '--kind', 'cli-failure', '--summary', summary, '--json']));
+    assert.equal(stored(box)[0]?.summary, `factory followup ${user} failed at ~/repo/x and ~/y, mailed [email], cc @[user]`, user);
+    box.cleanup();
+    const id = identityOf({ HOME: `/home/${user}`, USER: user }, { username: user, homedir: `/home/${user}` }, reservedNames());
+    assert.deepEqual(draftPersonal(`# t\n\nfactory followup ${user} printed nothing\n${user}`, id), [], user);
+    assert.deepEqual(draftPersonal(`# t\n\nok\nsee /home/${user}/x\nmail a@b.example\ncc @octocat`, id), [4, 5, 6], user);
+  }
+  box = undefined;
 });
 
 test('a username that is not reserved is still masked as a whole word through run()', () => {
