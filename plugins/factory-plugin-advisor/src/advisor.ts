@@ -40,7 +40,7 @@ export interface RecordResult {
   redacted: boolean;
 }
 
-/** Checks and cleans one occurrence's fields; throws CliError with a usage message when invalid. */
+/** Checks one occurrence's fields; throws UsageError (exit 2) when they are invalid. */
 export function validateInput(input: RecordInput): void {
   if (input.plugin !== 'none' && !PLUGIN_NAME.test(input.plugin)) {
     throw new UsageError(`--plugin must be a kebab-case plugin name or 'none', got ${JSON.stringify(input.plugin)}`);

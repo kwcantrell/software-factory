@@ -39,6 +39,7 @@ const SECRETS: Array<[string, string, string]> = [
   ['-p attached value', 'ran mysql -pab', `ran mysql -p${R}`],
   ['-p quoted value', "mysql -p'a b' x", `mysql -p'${R}' x`],
   ['--password value', 'login --password x', `login --password ${R}`],
+  ['passphrase=value', 'unlock passphrase=hunter2', `unlock passphrase=${R}`],
   ['--password=value', 'login --password=x', `login --password=${R}`],
   // A secret key=value that is itself the value of an ordinary key.
   ['secret pair after an ordinary key', 'login failed: password=hunter2', `login failed: password=${R}`],

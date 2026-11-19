@@ -38,7 +38,7 @@ and from a checkout you can run `node plugins/factory-plugin-advisor/src/cli.ts 
 | `show <signature>` | One issue with all its occurrences (already redacted). A unique prefix of 4+ characters works. |
 | `suggest [--threshold <n>]` | For every issue seen at least `n` times (default 3) that has not been suggested yet, or whose count has grown by `n` since it was, writes a draft to `drafts/<signature>.md` and returns it. Dismissed issues are never suggested. |
 | `dismiss <signature>` | Stops all further suggestions for the issue. |
-| `file <signature> [--repo <owner/name>] [--confirm]` | Without `--confirm`, prints exactly the title, body and repo that would be filed, and files nothing. With `--confirm`, runs `gh issue create --repo <repo> --title <title> --body-file -` (body on stdin, no shell), records the issue URL, and refuses to file the same issue again. Before either, it re-checks the draft and exits 1 if anything secret-looking is left: each stored value the draft quotes (summaries, detail lines) is checked on its own, and the rest of the draft, including anything edited in by hand, without them. The repo defaults to `kwcantrell/software-factory`. |
+| `file <signature> [--repo <owner/name>] [--confirm]` | Without `--confirm`, prints exactly the title, body and repo that would be filed, and files nothing. With `--confirm`, runs `gh issue create --repo <repo> --title <title> --body-file -` (body on stdin, no shell), records the issue URL, and refuses to file the same issue again. Before either, it re-checks the draft and exits 1 if anything secret-looking is left: each stored value the draft quotes (summaries, detail lines) is checked on its own, and the rest of the draft, including anything edited in by hand, without them. Where the draft's own template names the target plugin (title, `/factory:run` line, backticks), the name is read as a neutral word, so a plugin called `token-helper` or `secret-store` is not mistaken for a secret key. The repo defaults to `kwcantrell/software-factory`. |
 | `hook` | Reads a Claude Code hook input on stdin and records a failed marketplace CLI call. Used by `hooks/hooks.json`; prints nothing and always exits 0. |
 
 Every command takes `--json` (one JSON value on stdout), `--help` and `--version`. Exit codes: 0
@@ -68,7 +68,7 @@ by accident. It also refuses a location that is, holds or sits inside the log di
 `Authorization:` or `Proxy-Authorization:` to the end of the line (any scheme), every cookie value
 after `Cookie:` or `Set-Cookie:` (attributes such as `Path` are kept), bearer and basic credentials,
 `KEY=value`, `key: value`, `"key": "value"` and `--key value` where the key looks secret (token,
-secret, password, api key, cookie, credential, session, session id and similar) whatever the value's
+secret, password, passphrase, api key, cookie, credential, session, session id and similar) whatever the value's
 length, the value after `-p` or `--password`, JWTs, URL credentials, PEM private keys, common
 provider tokens (GitHub, Slack, AWS, `sk-`), and long random-looking strings (including full
 40-character git SHAs and UUIDs; short SHAs and factory job ids are kept) all become `[redacted]`.

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, test } from 'node:test';
 import { CLI_NAME, EXIT } from '../src/run.ts';
@@ -248,4 +248,14 @@ test('configDir defaults to XDG_CONFIG_HOME, then ~/.config', () => {
   assert.equal(configDir({ FACTORY_PLUGIN_ADVISOR_CONFIG_DIR: '/x/y' }), '/x/y');
   assert.equal(configDir({ XDG_CONFIG_HOME: '/xdg', HOME: '/h' }), '/xdg/factory-plugin-advisor');
   assert.equal(configDir({ HOME: '/h' }), '/h/.config/factory-plugin-advisor');
+});
+
+test('a log line whose signature is not 12 hex characters is ignored, so it never names a draft path', () => {
+  box = sandbox();
+  const sig = json(box.call([...REC, '--summary', 'ok entry', '--json'])).signature;
+  const log = join(box.config, 'occurrences.jsonl');
+  const bad = { signature: '../../escape', plugin: 'factory-docs', kind: 'workaround', summary: 'bad entry', at: '2026-11-01T10:00:00.000Z', source: 'record' };
+  writeFileSync(log, `${readFileSync(log, 'utf8')}${JSON.stringify(bad)}\n`);
+  const listed = json(box.call(['list', '--json']));
+  assert.deepEqual(listed.issues.map((i: { signature: string }) => i.signature), [sig]);
 });

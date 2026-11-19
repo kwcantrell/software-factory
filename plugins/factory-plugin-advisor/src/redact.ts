@@ -8,7 +8,7 @@ export const SUMMARY_MAX = 200;
 export const DETAIL_MAX = 2000;
 
 /** Key names whose values are treated as secrets in `key=value`, `key: value` and `--key value`. */
-const SECRET_KEY = /(secret|token|passw(or)?d|pwd|api[_-]?key|access[_-]?key|private[_-]?key|credential|cookie|(^|[_.-])sid$|^sid$|^auth$|authorization|session[_-]?id|(^|[_.-])session$|jwt)/i;
+const SECRET_KEY = /(secret|token|passw(or)?d|passphrase|pwd|api[_-]?key|access[_-]?key|private[_-]?key|credential|cookie|(^|[_.-])sid$|^sid$|^auth$|authorization|session[_-]?id|(^|[_.-])session$|jwt)/i;
 
 /** Set-Cookie attributes: their values describe the cookie and are not secret. */
 const COOKIE_ATTRIBUTE = /^(path|domain|expires|max-age|samesite|secure|httponly|partitioned|priority)$/i;

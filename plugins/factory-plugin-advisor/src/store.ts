@@ -244,5 +244,7 @@ export class Store {
 function isOccurrence(value: unknown): value is Occurrence {
   if (typeof value !== 'object' || value === null) return false;
   const o = value as Record<string, unknown>;
-  return ['signature', 'plugin', 'kind', 'summary', 'at'].every((k) => typeof o[k] === 'string');
+  if (!['signature', 'plugin', 'kind', 'summary', 'at'].every((k) => typeof o[k] === 'string')) return false;
+  // The signature names a draft file (`drafts/<signature>.md`), so it must be exactly the 12 hex chars.
+  return /^[0-9a-f]{12}$/.test(o.signature as string);
 }

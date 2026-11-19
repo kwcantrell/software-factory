@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, test } from 'node:test';
-import { draftFields, issues, MARKETPLACE_REPO, renderDraft, targetOf, type Issue } from '../src/advisor.ts';
-import { secretLines, withoutFields } from '../src/file.ts';
+import { draftFields, issues, KINDS, MARKETPLACE_REPO, renderDraft, targetOf, type Issue } from '../src/advisor.ts';
+import { draftSecrets, secretLines, withoutFields, withoutPluginName } from '../src/file.ts';
 import { EXIT } from '../src/run.ts';
 import { fakeGh, sandbox, type Sandbox } from './helpers.ts';
 
@@ -261,6 +261,74 @@ test('text edited into a draft is checked as it is: a typed [redacted] or a stor
     assert.equal(r.code, EXIT.failure, edit);
     assert.match(r.stderr, /still has secret-looking text on line \d+/);
   }
+  assert.deepEqual(ghCalls(box), []);
+});
+
+// Review 1 (behavior): a plugin name with a secret-like word in it, followed by the title's `: `, read
+// as a `key: value` pair, so every draft for that plugin was refused with no line named.
+const SECRET_LIKE_NAMES = ['token-helper', 'secret-store', 'api-token-store', 'session-id-tools', 'password-vault'];
+
+for (const plugin of SECRET_LIKE_NAMES) {
+  test(`a draft for new plugin ${plugin} files (dry run, then --confirm)`, () => {
+    box = withGh(`console.log(${JSON.stringify(ISSUE_URL)});`);
+    let sig = '';
+    for (let i = 0; i < 3; i++) {
+      sig = json(box.call(['record', '--plugin', plugin, '--kind', 'manual-step', '--summary', `had to copy session ids by hand (run ${i})`, '--json'])).signature;
+    }
+    assert.equal(json(box.call(['suggest', '--json'])).suggestions.length, 1);
+    const dry = box.call(['file', sig, '--json']);
+    assert.equal(dry.code, EXIT.ok, dry.stderr);
+    assert.match(JSON.parse(dry.stdout).title, new RegExp(`^factory-plugin-advisor: new plugin ${plugin}: had to copy session ids by hand`));
+    const r = json(box.call(['file', sig, '--confirm', '--json']));
+    assert.equal(r.filed, true);
+    assert.equal(ghCalls(box).length, 1);
+  });
+}
+
+test('a draft for an existing plugin with a secret-like name passes the check, for every kind', () => {
+  for (const plugin of SECRET_LIKE_NAMES) {
+    for (const kind of Object.keys(KINDS)) {
+      const occ = [1, 2, 3].map((k) => ({
+        signature: 'abcdef012345', plugin, kind, summary: 'the sync step fails again', at: `2026-11-0${k}T10:00:00.000Z`,
+        source: k === 1 ? ('hook' as const) : ('record' as const), ...(k === 1 ? { subcommand: 'sync', exitCode: 1 } : {}),
+      }));
+      const [issue] = issues(occ, { version: 1, issues: {} });
+      const { text } = renderDraft(issue as Issue, occ, targetOf(plugin, [plugin]));
+      assert.deepEqual(draftSecrets(text, plugin, occ), [], `${plugin} ${kind}:\n${text}`);
+    }
+  }
+});
+
+test('the plugin name is neutralised only where the draft template puts it', () => {
+  const plugin = 'token-helper';
+  assert.equal(withoutPluginName('# factory-plugin-advisor: token-helper: ', plugin), '# factory-plugin-advisor: plugin: ');
+  assert.equal(withoutPluginName('# factory-plugin-advisor: new plugin token-helper: ', plugin), '# factory-plugin-advisor: new plugin plugin: ');
+  assert.equal(withoutPluginName('/factory:run token-helper: Fix `token-helper sync` now', plugin), '/factory:run plugin: Fix `plugin sync` now');
+  for (const typed of ['token-helper: hunter2xyz', 'token-helper=hunter2xyz', 'x `token-helper=hunter2xyz`', '"token-helper": "hunter2xyz"']) {
+    assert.equal(withoutPluginName(typed, plugin), typed);
+  }
+  // A name that is secret-looking on its own is never replaced.
+  const random = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8';
+  assert.equal(withoutPluginName(`/factory:run ${random}: x`, random), `/factory:run ${random}: x`);
+});
+
+test('a secret typed next to a secret-like plugin name is still refused, naming its line', () => {
+  box = withGh(`console.log(${JSON.stringify(ISSUE_URL)});`);
+  let sig = '';
+  for (let i = 0; i < 3; i++) sig = json(box.call(['record', '--plugin', 'token-helper', '--kind', 'workaround', '--summary', 'had to retry by hand', '--json'])).signature;
+  json(box.call(['suggest', '--json']));
+  const path = join(box.config, 'drafts', `${sig}.md`);
+  const original = readFileSync(path, 'utf8');
+  for (const edit of [`${original}\ntoken-helper: hunter2xyz\n`, `${original}\nUse \`token-helper=hunter2xyz\` here\n`]) {
+    writeFileSync(path, edit);
+    const r = box.call(['file', sig, '--confirm']);
+    assert.equal(r.code, EXIT.failure, edit);
+    assert.match(r.stderr, /still has secret-looking text on line \d+/);
+  }
+  writeFileSync(path, `${original}\npassword:\n  hunter2xyz\n`);
+  const spanning = box.call(['file', sig, '--confirm']);
+  assert.equal(spanning.code, EXIT.failure);
+  assert.match(spanning.stderr, /still has secret-looking text/);
   assert.deepEqual(ghCalls(box), []);
 });
 
