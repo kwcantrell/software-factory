@@ -70,3 +70,33 @@ test('the human-gate skills stay user-only', () => {
     assert.equal(fm['disable-model-invocation'], 'true', name);
   }
 });
+
+test('every station writes its handoff file only to the job dir and deletes a stray copy only if it wrote it', () => {
+  const handoff: Record<string, [string, string]> = {
+    'builder.md': ['build.md', 'built'],
+    'verifier.md': ['proof.md', 'proof'],
+    'reviewer-security.md': ['review-<round>-security.md', 'verdict'],
+    'reviewer-standards.md': ['review-<round>-standards.md', 'verdict'],
+    'reviewer-behavior.md': ['review-<round>-behavior.md', 'verdict'],
+  };
+  for (const [agent, [name, cmd]] of Object.entries(handoff)) {
+    const text = readFileSync(join(PLUGIN, 'agents', agent), 'utf8');
+    const rule = `**Handoff files.** Write \`${name}\` (and anything under \`evidence/\``;
+    assert.ok(text.includes(rule), `${agent} does not name its handoff file and evidence/`);
+    assert.ok(
+      text.includes('only to the absolute `<job dir>` path given in your prompt, never to the current directory or the worktree.'),
+      `${agent} does not say to write only to the absolute job dir`,
+    );
+    assert.ok(
+      text.includes(
+        `If \`factory ${cmd}\` refuses because of a stray copy of \`${name}\` outside the job dir, delete that copy and retry only if you wrote it in this job, that is, its content matches your own \`${name}\` in the job dir (the refusal says whether the two are byte-identical).`,
+      ),
+      `${agent} does not say to delete a stray copy only when it matches the job-dir copy`,
+    );
+    assert.ok(
+      text.includes('Otherwise do not delete it: stop and report the refusal to the supervisor.'),
+      `${agent} does not say to stop and report a stray copy it did not write`,
+    );
+    assert.ok(!text.includes('delete your own stray copy and retry'), `${agent} still says to delete any stray copy`);
+  }
+});

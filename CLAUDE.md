@@ -175,6 +175,9 @@ next one, rule by rule (the bracketed ids are its rule names).
 - **Gates live in the CLI, not in prompts.** A rule that must hold is enforced in
   `plugins/factory/src/factory.ts` (exit 1 = refused, 2 = escalated to a human; usage errors also
   exit 2); prompts may describe it but never replace it.
+  For example, `built`, `proof` and `verdict` refuse while an untracked copy of their handoff file
+  (`build.md`, `proof.md`, `review-<round>-<reviewer>.md`) sits at the root of the main checkout or
+  the job's worktree: stations write handoff files only to the job dir.
 - **Human-only commands** (today `factory merge`, `factory approve`, `factory rework`) are made
   permission prompts by the TS hook (`plugins/factory/src/gate.ts`, run by `hooks/hooks.json`). A new
   command only a person may run must be added there too, and its skill marked

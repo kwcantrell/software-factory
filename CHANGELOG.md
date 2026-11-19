@@ -12,6 +12,14 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   `factory followup`'s subcommands (`add`, `list`, `done`, `drop`, in any case), so "factory
   followup list printed nothing" is stored unchanged for a user named `list`. Home paths, emails
   and mentions are still masked for such a user.
+- `factory built`, `factory proof` and `factory verdict` refuse (exit 1) while an untracked copy of
+  their own handoff file (`build.md`, `proof.md`, `review-<round>-<reviewer>.md`) sits at the root
+  of the main checkout or of the job's worktree, and name the stray file to move or delete, so a
+  station's stray copy can no longer be swept into a commit by `git add -A`. The refusal says
+  whether the stray file is byte-identical to the job dir's copy. A tracked file of the same name
+  is ignored. The builder, verifier and reviewer prompts now say to write handoff files only to the
+  absolute job dir, and on that refusal to delete the stray copy and retry only if they wrote it in
+  this job (it matches their own copy in the job dir); otherwise they stop and report it.
 
 ## [0.3.0] - 2026-11-19
 
