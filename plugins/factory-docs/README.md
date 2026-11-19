@@ -63,7 +63,9 @@ missing. In this repo each plugin's README covers its `src/**`, `package.json` a
 `factory` plugin's hooks are covered by the root `README.md`), and each SKILL.md covers the CLI
 code it calls. The `factory` station templates (`plugins/factory/templates/agents/*.md`) are docs
 too: each covers `src/agents.ts`, which checks agents against it, and the shipped agent that must
-keep its fixed sections.
+keep its fixed sections. This repo's own station agents (`.claude/agents/factory-*.md`, made with
+`/factory:agents`) are docs as well: each covers the station templates it was made from, whose
+fixed sections it must keep, and the root `package.json`, whose scripts it names.
 
 ## `which <path>...`
 

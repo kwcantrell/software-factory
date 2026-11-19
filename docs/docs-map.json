@@ -1,6 +1,11 @@
 {
   "$comment": "factory-docs doc map: each doc and the globs of the code it describes. See plugins/factory-docs/README.md.",
   "docs": {
+    ".claude/agents/factory-builder.md": ["plugins/factory/templates/agents/**", "package.json"],
+    ".claude/agents/factory-verifier.md": ["plugins/factory/templates/agents/**", "package.json"],
+    ".claude/agents/factory-reviewer-security.md": ["plugins/factory/templates/agents/**", "package.json"],
+    ".claude/agents/factory-reviewer-standards.md": ["plugins/factory/templates/agents/**", "package.json"],
+    ".claude/agents/factory-reviewer-behavior.md": ["plugins/factory/templates/agents/**", "package.json"],
     "README.md": [
       ".claude-plugin/marketplace.json",
       "plugins/factory/src/**",
