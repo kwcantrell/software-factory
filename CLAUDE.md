@@ -35,6 +35,8 @@ build step and no runtime dependency.
 | `plugins/factory/package.json` | `"bin": {"factory": "src/cli.ts"}`, `type: module`, private, no `dependencies` |
 | `plugins/factory/src/cli.ts`, `run.ts` | CLI entry, and argument parsing, usage text and exit codes |
 | `plugins/factory/src/factory.ts` | The line's state machine and gates: the only writer of `job.json` |
+| `plugins/factory/src/remote.ts` | The remote factory's git side: `remote` validation, attaching `jobs/` as a checkout of the state branch, pull, publish (commit, push, retry, conflict refusal), `remote status` and `remote push` |
+| `plugins/factory/src/errors.ts` | `Refused`, `Escalated` and `now()`, shared by `factory.ts` and `remote.ts` without an import cycle |
 | `plugins/factory/src/agents.ts` | `factory agents`: station agent resolution (project or shipped fallback), `new` (a template as a project agent) and `check` (the rules a project agent must pass) |
 | `plugins/factory/src/upgrade.ts` | `factory upgrade`: moves a repo from an older factory (settings, `factory/` dir, manual steps); dry run unless `--apply` |
 | `plugins/factory/src/dashboard.ts` | `factory dashboard`: serves the factory dir on 127.0.0.1 |
@@ -182,10 +184,11 @@ next one, rule by rule (the bracketed ids are its rule names).
   For example, `built`, `proof` and `verdict` refuse while an untracked copy of their handoff file
   (`build.md`, `proof.md`, `review-<round>-<reviewer>.md`) sits at the root of the main checkout or
   the job's worktree: stations write handoff files only to the job dir.
-- **Human-only commands** (today `factory merge`, `factory approve`, `factory rework`) are made
-  permission prompts by the TS hook (`plugins/factory/src/gate.ts`, run by `hooks/hooks.json`). A new
-  command only a person may run must be added there too, and its skill marked
-  `disable-model-invocation: true`.
+- **Human-only commands** (today `factory merge`, `factory approve`, `factory rework`,
+  `factory claim`) are made permission prompts by the TS hook (`plugins/factory/src/gate.ts`, run by
+  `hooks/hooks.json`). A new command only a person may run must be added there too, and its skill
+  marked `disable-model-invocation: true` (`claim` has no skill; the README and the station agents
+  say it is a human's).
 - **Station agents.** `/factory:run` launches, per station, the agent `factory agents` names: the
   project's `.claude/agents/factory-<station>.md` when it passes `factory agents check`, else the
   shipped `factory:<station>`. A non-negotiable of a station goes in a `fixed` section of its
@@ -201,6 +204,13 @@ next one, rule by rule (the bracketed ids are its rule names).
   (or `FACTORY_DIR`) and reads `factory.json` from that dir's parent. Running the factory on this
   repo creates `/factory/`, which `.gitignore` excludes. Tests use temporary repos with
   `FACTORY_DIR` set; never point them at a real `factory/`.
+- **Remote factory.** With `remote` in `factory.json`, `factory/jobs/` is a git checkout of the state
+  branch, never holding worktrees. Every state-changing command goes through `editing()` (or `new`'s
+  allocation loop), which pulls, applies, saves and publishes one commit of the job's directory;
+  a new state-changing command must do the same, and declare a command name for the commit message
+  and the owner check (`ANYONE` lists the commands anyone may run on a claimed job). Read commands
+  set `read: true` in `run.ts` and take `--offline`. Local mode (no `remote`) must behave exactly as
+  before. `remote.test.ts` uses a bare repo in a temp dir as the remote and two clones as two people.
 - **Every user-visible change gets a semver bump and a changelog entry.** Add it under
   `## [Unreleased]` in `CHANGELOG.md` (Keep a Changelog). **One changelog, one repo version:** every
   marketplace plugin's `.claude-plugin/plugin.json` and `package.json` carry the same `version`

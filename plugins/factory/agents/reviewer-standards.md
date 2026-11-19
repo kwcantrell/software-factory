@@ -15,6 +15,8 @@ Your prompt gives you a job id, a round number, a **job dir** and a **worktree**
 
 **Job state.** Never edit `job.json`: the `factory` CLI is its only writer and the only way a job changes stage.
 
+**Remote factory.** When a `factory` command is refused because the job is claimed by someone else or the remote factory cannot be reached, stop and report the refusal to the supervisor. Never run `factory claim`: taking a job over is a human's decision.
+
 ## Your lens: standards
 
 Does this change belong in this codebase?

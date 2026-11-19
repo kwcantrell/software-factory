@@ -42,6 +42,8 @@ export const FACTORY_COMMANDS = [
   'merge',
   'rework',
   'close',
+  'claim',
+  'remote',
   'config',
   'note',
   'followup',

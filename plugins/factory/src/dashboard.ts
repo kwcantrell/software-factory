@@ -2,7 +2,7 @@
 // Directories are listed as HTML pages of links, in the format dashboard/index.html parses
 // (`<a href="name/">`), and a directory holding an index.html is served as that page. Nothing outside
 // the factory directory is served: a path with a ".." segment, or one that resolves (through a
-// symlink) outside it, is refused.
+// symlink) outside it, is refused, and so is anything under a `.git` directory.
 import { createReadStream, readdirSync, realpathSync, statSync } from 'node:fs';
 import type { Stats } from 'node:fs';
 import { createServer } from 'node:http';
@@ -50,6 +50,14 @@ export function listing(urlPath: string, dir: string): string {
   );
 }
 
+// Job files can come from a shared state branch (remote factory). Even if markup from one slipped
+// through, the page may load and send nothing beyond this server, so it cannot carry the factory
+// dir (worktrees included) anywhere else.
+export const CSP =
+  "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
+  "img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; " +
+  "frame-ancestors 'none'";
+
 function send(res: ServerResponse, status: number, body: string, head: boolean): void {
   res.writeHead(status, {
     'Content-Type': 'text/plain; charset=utf-8',
@@ -72,6 +80,8 @@ export function mapPath(root: string, rawUrl: string): string | number {
   if (decoded.includes('\0') || decoded.includes('\\')) return 400;
   const segments = decoded.split('/').filter((x) => x !== '');
   if (segments.some((x) => x === '..' || x === '.')) return 403;
+  // A remote factory's jobs/ is a git checkout: its .git (remote URL, config) is not served.
+  if (segments.some((x) => x.toLowerCase() === '.git')) return 404;
   const target = join(root, ...segments);
   let real: string;
   try {
@@ -131,6 +141,7 @@ function handle(root: string, req: IncomingMessage, res: ServerResponse): void {
         'Content-Type': 'text/html; charset=utf-8',
         'Content-Length': Buffer.byteLength(body),
         'Cache-Control': 'no-store',
+        'Content-Security-Policy': CSP,
       });
       res.end(head ? undefined : body);
       return;
@@ -146,6 +157,7 @@ function handle(root: string, req: IncomingMessage, res: ServerResponse): void {
     'Content-Length': st.size,
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy': CSP,
   });
   if (head) {
     res.end();

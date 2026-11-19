@@ -18,12 +18,38 @@ import {
   readdirSync,
   realpathSync,
   renameSync,
+  rmSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { basename, dirname, join, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { Escalated, now, Refused } from './errors.ts';
 import { dumps, Float, formatG, formatPercent, roundHalfEven, str } from './pyfmt.ts';
+import {
+  attach,
+  attached,
+  identity,
+  isStateCheckout,
+  JOB_DIR,
+  personText,
+  publish,
+  pull,
+  pullForRead,
+  RaceLost,
+  remoteProblem,
+  remotePush,
+  remoteStatus,
+  resolveRemote,
+  samePerson,
+  snapshot,
+  stateDir,
+  PUSH_ATTEMPTS,
+} from './remote.ts';
+import type { Person, RemoteConfig } from './remote.ts';
+
+export { Escalated, now, Refused } from './errors.ts';
+export type { Person, RemoteConfig } from './remote.ts';
 
 export const STAGES = ['intake', 'build', 'proof', 'review', 'ship', 'done'] as const;
 
@@ -35,6 +61,8 @@ export interface Config {
   /** Repo-relative directory of living behavior specs, if the project keeps them. Intake reads the
    * specs a change touches and gives each one an acceptance criterion. */
   specs_dir: string | null;
+  /** Where the job state is shared (a git URL or path and a branch), or null for a local factory. */
+  remote: RemoteConfig | null;
 }
 
 /** Defaults; a project overrides them in factory.json at the repository root. */
@@ -44,6 +72,7 @@ export const DEFAULTS: Readonly<Config> = {
   max_proof_attempts: 3,
   spec_gate: false,
   specs_dir: null,
+  remote: null,
 };
 
 export const PLUGIN_ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -87,15 +116,12 @@ export interface Job {
   proof_attempts: number;
   rounds: Round[];
   followups?: FollowUp[];
+  /** Remote factory only: who claimed the job (set by `start`, moved by `claim --take-over`). */
+  owner?: Person | null;
   created: string;
   history: HistoryEntry[];
   updated?: string;
 }
-
-/** A gate was not met. */
-export class Refused extends Error {}
-/** The job was handed to a human. */
-export class Escalated extends Error {}
 
 export interface Io {
   stdout: (text: string) => void;
@@ -124,13 +150,27 @@ export function git(args: string[], cwd?: string | null, check = true): string {
   return p.stdout.trim();
 }
 
-/** The repo's primary working tree, even when called from a job worktree. */
+/**
+ * The repo's primary working tree, even when called from a job worktree, or from inside a remote
+ * factory's state checkout (`<factory dir>/jobs`, a repository of its own), where it is the checkout
+ * that holds that factory dir.
+ */
 export function mainCheckout(): string {
-  const p = run('git', ['worktree', 'list', '--porcelain']);
-  if (p.status !== 0 || !p.stdout.startsWith('worktree ')) {
-    throw new Refused('not inside a git repository (the factory isolates builds in git worktrees)');
+  const first = (cwd?: string): string | null => {
+    const p = run('git', ['worktree', 'list', '--porcelain'], cwd);
+    if (p.status !== 0 || !p.stdout.startsWith('worktree ')) return null;
+    return (p.stdout.split(/\r?\n/)[0] ?? '').slice('worktree '.length);
+  };
+  const main = first();
+  if (main === null) throw new Refused('not inside a git repository (the factory isolates builds in git worktrees)');
+  if (!isStateCheckout(main)) return main;
+  const outer = first(dirname(dirname(main)));
+  if (outer === null || isStateCheckout(outer)) {
+    throw new Refused(
+      `${process.cwd()} is inside a remote factory's state checkout (${main}), not a project checkout; run factory from the project's checkout`,
+    );
   }
-  return (p.stdout.split(/\r?\n/)[0] ?? '').slice('worktree '.length);
+  return outer;
 }
 
 /** An absolute path with symlinks resolved as far as the path exists (like Path.resolve()). */
@@ -221,6 +261,9 @@ function checkConfigKey(path: string, key: string, value: unknown): void {
     if (!ok) {
       throw new Refused(`${path}: 'specs_dir' must be null or a repo-relative directory like "docs/specs"`);
     }
+  } else if (key === 'remote') {
+    const problem = remoteProblem(value);
+    if (problem) throw new Refused(`${path}: ${problem}`);
   } else if (!(typeof value === 'number' && Number.isInteger(value) && value >= 1)) {
     throw new Refused(`${path}: '${key}' must be a whole number of at least 1`);
   }
@@ -275,10 +318,6 @@ export function configProblems(root: string): string[] {
 }
 
 // ---------------------------------------------------------------- job storage
-
-export function now(): string {
-  return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
-}
 
 function sleep(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -372,29 +411,107 @@ export function resolve(root: string, ref: string): string {
 }
 
 export function load(root: string, jobId: string): Job {
-  return JSON.parse(readFileSync(join(root, 'jobs', jobId, 'job.json'), 'utf8')) as Job;
+  const job = JSON.parse(readFileSync(join(root, 'jobs', jobId, 'job.json'), 'utf8')) as Job;
+  if (attached(root)) trustRemoteJob(root, jobId, job);
+  return job;
+}
+
+/**
+ * A job from a state checkout was written by whoever can push to the state branch, so the fields
+ * this CLI uses as paths or git arguments must be the values it writes itself: the id is the job's
+ * directory name, the branch is `factory/<id>`, the base a commit hash. The worktree is always this
+ * machine's own `<factory dir>/worktrees/<id>` (another person's path means nothing here).
+ */
+function trustRemoteJob(root: string, jobId: string, job: Job): void {
+  const where = join(root, 'jobs', jobId, 'job.json');
+  const bad = (field: string, value: unknown, want: string): Refused =>
+    new Refused(`${where} has ${field} ${JSON.stringify(value)}, but the factory only ever writes ${want}; refusing to use it - fix it on the state branch`);
+  if (job.id !== jobId || !JOB_DIR.test(jobId)) throw bad('id', job.id, JSON.stringify(jobId));
+  if (job.branch !== null && job.branch !== `factory/${jobId}`) throw bad('branch', job.branch, `null or "factory/${jobId}"`);
+  if (job.base !== null && !(typeof job.base === 'string' && /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(job.base))) {
+    throw bad('base', job.base, 'null or a commit hash');
+  }
+  if (job.worktree !== null) job.worktree = join(root, 'worktrees', jobId);
 }
 
 export function save(root: string, job: Job): void {
   job.updated = now();
   const path = join(root, 'jobs', job.id, 'job.json');
   const tmp = `${path}.tmp`;
-  writeFileSync(tmp, `${dumps(job)}\n`);
+  // Never write through whatever already sits at the temp path (a link, say): replace it.
+  rmSync(tmp, { force: true });
+  writeFileSync(tmp, `${dumps(job)}\n`, { flag: 'wx' });
   renameSync(tmp, path); // atomic: the dashboard never reads a half-written file
 }
 
-/** Load a job under the lock; save it when fn returns, and also when it escalates. */
-export function editing<T>(root: string, ref: string, fn: (job: Job) => T): T {
+/** factory.json's remote with a relative url made absolute, or null for a local factory. */
+export function remoteOf(root: string, cfg: Config): RemoteConfig | null {
+  return cfg.remote ? resolveRemote(cfg.remote, dirname(configPath(root))) : null;
+}
+
+/** Commands any person may run on a job someone else has claimed: the human gates, and `claim`. */
+export const ANYONE: ReadonlySet<string> = new Set(['approve', 'merge', 'rework', 'close', 'claim']);
+
+/** Steps that undo a command's side effects outside the state checkout, if publishing it fails. */
+let undoSteps: (() => void)[] = [];
+
+function onRollback(step: () => void): void {
+  undoSteps.push(step);
+}
+
+/**
+ * Load a job under the lock; save it when fn returns, and also when it escalates. With a remote,
+ * pull first, refuse a job someone else claimed (unless `command` is in ANYONE), and publish the
+ * job's directory as one commit after saving it.
+ */
+export function editing<T>(root: string, a: Args, command: string, fn: (job: Job) => T): T {
+  const ref = a.job as string;
+  const remote = remoteOf(root, a.cfg);
   return locked(root, () => {
-    const job = load(root, resolve(root, ref));
-    let result: T;
+    undoSteps = [];
+    if (remote === null) {
+      const job = load(root, resolve(root, ref));
+      let result: T;
+      try {
+        result = fn(job);
+      } catch (error) {
+        if (error instanceof Escalated) save(root, job);
+        throw error;
+      }
+      save(root, job);
+      return result;
+    }
+    const me = identity();
+    pull(root, remote, () => me);
+    const id = resolve(root, ref);
+    const snap = snapshot(join(root, 'jobs', id));
+    const job = load(root, id);
+    if (job.owner && !samePerson(job.owner, me) && !ANYONE.has(command)) {
+      throw new Refused(
+        `${id} is claimed by ${personText(job.owner)}; only they can run \`factory ${command}\` on it. ` +
+          `A human can take it over with \`factory claim ${id} --take-over\``,
+      );
+    }
+    let result!: T;
+    let escalated: Escalated | null = null;
     try {
       result = fn(job);
     } catch (error) {
-      if (error instanceof Escalated) save(root, job);
-      throw error;
+      if (!(error instanceof Escalated)) {
+        for (const step of undoSteps.reverse()) {
+          try {
+            step();
+          } catch {
+            // best effort: the refusal below is what the caller needs to see
+          }
+        }
+        throw error;
+      }
+      escalated = error;
     }
     save(root, job);
+    publish(root, remote, id, command, me, { snap, undo: undoSteps });
+    if (escalated) throw escalated;
     return result;
   });
 }
@@ -490,8 +607,19 @@ const flag = (a: Args, name: string): boolean => a[name] === true;
 
 export type Command = (root: string, a: Args, io: Io) => void;
 
-export const cmdInit: Command = (root, _a, io) => {
-  io.stdout(`factory ready at ${root}\ndashboard: factory dashboard\n`);
+export const cmdInit: Command = (root, a, io) => {
+  const remote = remoteOf(root, a.cfg);
+  let state = '';
+  if (remote) {
+    const how = locked(root, () => {
+      const result = attach(root, remote, identity);
+      pull(root, remote, identity);
+      return result;
+    });
+    const verb = { attached: 'tracks', cloned: 'cloned from', created: 'created as a new branch on' }[how];
+    state = `job state: ${stateDir(root)} ${verb} ${remote.url} (branch ${remote.branch})\n`;
+  }
+  io.stdout(`factory ready at ${root}\n${state}dashboard: factory dashboard\n`);
 };
 
 /** A new job record: every field the CLI writes, in the order it writes them (save() adds `updated`). */
@@ -526,7 +654,7 @@ export const cmdNew: Command = (root, a, io) => {
       .replace(/^-+|-+$/g, '')
       .slice(0, 40)
       .replace(/^-+|-+$/g, '') || 'job';
-  const jobId = locked(root, () => {
+  const create = (): string => {
     const nums = readdirSync(join(root, 'jobs'))
       .map((name) => name.split('-')[0] ?? '')
       .filter((head) => /^\d+$/.test(head))
@@ -537,6 +665,27 @@ export const cmdNew: Command = (root, a, io) => {
     log(job, 'created');
     save(root, job);
     return id;
+  };
+  const remote = remoteOf(root, a.cfg);
+  const jobId = locked(root, () => {
+    if (remote === null) return create();
+    // Two people creating jobs at once: whoever pushes second rolls back, pulls the other's job
+    // and allocates the next number, so ids never collide and neither job is lost.
+    const me = identity();
+    pull(root, remote, () => me);
+    // Never replay a `new` onto the remote's commits: its number may be taken there by now.
+    for (let attempt = 1; attempt <= PUSH_ATTEMPTS; attempt++) {
+      const id = create();
+      try {
+        publish(root, remote, id, 'new', me, { snap: null, undo: [], redo: true });
+        return id;
+      } catch (error) {
+        if (!(error instanceof RaceLost)) throw error;
+      }
+    }
+    throw new Refused(
+      `lost the race to push ${remote.branch} ${PUSH_ATTEMPTS} times while numbering the job; nothing was created - retry the command`,
+    );
   });
   io.stdout(
     `${jobId}\njob dir: ${join(root, 'jobs', jobId)}\nnext: write task.md there, then \`factory start ${jobId}\`\n`,
@@ -544,7 +693,7 @@ export const cmdNew: Command = (root, a, io) => {
 };
 
 export const cmdStart: Command = (root, a, io) => {
-  const out = editing(root, s(a, 'job'), (job) => {
+  const out = editing(root, a, 'start', (job) => {
     if (job.stage === 'intake' && job.spec === 'pending') {
       throw new Refused(`${job.id} is waiting for a human to approve its spec (task.md)`);
     }
@@ -568,7 +717,12 @@ export const cmdStart: Command = (root, a, io) => {
     const branch = `factory/${job.id}`;
     job.branch = branch;
     const wt = join(root, 'worktrees', job.id);
+    if (a.cfg.remote) job.owner = identity();
     git(['worktree', 'add', '-b', branch, wt, base], main);
+    onRollback(() => {
+      git(['worktree', 'remove', '--force', wt], main, false);
+      git(['branch', '-D', branch], main, false);
+    });
     job.worktree = wt;
     move(job, 'build', 'building');
     return `worktree: ${wt}\nbranch: ${branch}\nbase: ${base}\n`;
@@ -577,7 +731,7 @@ export const cmdStart: Command = (root, a, io) => {
 };
 
 export const cmdSpec: Command = (root, a, io) => {
-  const id = editing(root, s(a, 'job'), (job) => {
+  const id = editing(root, a, 'spec', (job) => {
     if (job.stage !== 'intake') {
       throw new Refused(`${job.id} is in '${job.stage}'; a spec is approved before building`);
     }
@@ -592,7 +746,7 @@ export const cmdSpec: Command = (root, a, io) => {
 
 /** A human gate. hooks/hooks.json (src/human-gate.ts) makes Claude Code ask before this runs. */
 export const cmdApprove: Command = (root, a, io) => {
-  const id = editing(root, s(a, 'job'), (job) => {
+  const id = editing(root, a, 'approve', (job) => {
     if (job.stage !== 'intake' || job.spec !== 'pending') {
       throw new Refused(`${job.id} has no spec waiting for approval`);
     }
@@ -607,7 +761,7 @@ export const cmdApprove: Command = (root, a, io) => {
 };
 
 export const cmdBuilt: Command = (root, a, io) => {
-  const id = editing(root, s(a, 'job'), (job) => {
+  const id = editing(root, a, 'built', (job) => {
     requireStage(job, 'build');
     requireFile(root, job, 'build.md');
     requireNoStray(root, job, 'build.md');
@@ -625,7 +779,7 @@ export const cmdBuilt: Command = (root, a, io) => {
 };
 
 export const cmdProof: Command = (root, a, io) => {
-  const out = editing(root, s(a, 'job'), (job) => {
+  const out = editing(root, a, 'proof', (job) => {
     requireStage(job, 'proof');
     requireFile(root, job, 'proof.md');
     requireNoStray(root, job, 'proof.md');
@@ -645,7 +799,7 @@ export const cmdProof: Command = (root, a, io) => {
 };
 
 export const cmdRound: Command = (root, a, io) => {
-  const out = editing(root, s(a, 'job'), (job) => {
+  const out = editing(root, a, 'round', (job) => {
     requireStage(job, 'review');
     const rounds = job.rounds;
     const last = rounds[rounds.length - 1];
@@ -671,7 +825,7 @@ export const cmdRound: Command = (root, a, io) => {
 export const cmdVerdict: Command = (root, a, io) => {
   const reviewer = s(a, 'reviewer');
   const verdict = s(a, 'verdict');
-  const out = editing(root, s(a, 'job'), (job) => {
+  const out = editing(root, a, 'verdict', (job) => {
     requireStage(job, 'review');
     const rnd = job.rounds[job.rounds.length - 1];
     if (!rnd) throw new Refused('no review round is open - run `factory round` first');
@@ -712,7 +866,7 @@ export const cmdVerdict: Command = (root, a, io) => {
 
 export const cmdHuman: Command = (root, a) => {
   // Exit 2 like every other escalation, so the caller stops work on the job.
-  editing(root, s(a, 'job'), (job) => {
+  editing(root, a, 'human', (job) => {
     needHuman(job, list(a, 'reason').join(' '));
     throw new Escalated(`${job.id} flagged for a human: ${str(job.needs_human)}`);
   });
@@ -720,7 +874,7 @@ export const cmdHuman: Command = (root, a) => {
 
 export const cmdResume: Command = (root, a, io) => {
   const reset = flag(a, 'reset');
-  const out = editing(root, s(a, 'job'), (job) => {
+  const out = editing(root, a, 'resume', (job) => {
     if (job.stage === 'ship' || job.stage === 'done') {
       throw new Refused(`${job.id} is in '${job.stage}'; use \`factory merge\` or \`factory close\``);
     }
@@ -747,7 +901,7 @@ function dropWorktree(job: Job, keepBranch: boolean): void {
 
 /** The human gate. hooks/hooks.json (src/human-gate.ts) makes Claude Code ask before this runs. */
 export const cmdMerge: Command = (root, a, io) => {
-  const out = editing(root, s(a, 'job'), (job) => {
+  const out = editing(root, a, 'merge', (job) => {
     requireStage(job, 'ship');
     const main = mainCheckout();
     if (git(['status', '--porcelain', '--untracked-files=no'], main)) {
@@ -784,7 +938,7 @@ export const cmdMerge: Command = (root, a, io) => {
 };
 
 export const cmdRework: Command = (root, a, io) => {
-  const out = editing(root, s(a, 'job'), (job) => {
+  const out = editing(root, a, 'rework', (job) => {
     requireStage(job, 'ship');
     const reason = list(a, 'reason').join(' ').trim();
     if (!reason) throw new Refused('say what to change: factory rework <job> <what to change>');
@@ -803,7 +957,7 @@ export const cmdRework: Command = (root, a, io) => {
 };
 
 export const cmdClose: Command = (root, a, io) => {
-  const out = editing(root, s(a, 'job'), (job) => {
+  const out = editing(root, a, 'close', (job) => {
     if (job.stage === 'done') throw new Refused(`${job.id} is already done`);
     dropWorktree(job, true);
     job.status = 'closed';
@@ -816,6 +970,86 @@ export const cmdClose: Command = (root, a, io) => {
   io.stdout(out);
 };
 
+/** Stages in which a job has a worktree (and a branch) that `claim --take-over` brings along. */
+const WORKTREE_STAGES = ['build', 'proof', 'review', 'ship'];
+
+/**
+ * A human command (src/gate.ts): move a job's claim to whoever runs this. A job in build or later
+ * gets its worktree recreated here from its branch on the code remote (`origin` of the main
+ * checkout); a branch the previous owner never pushed is refused.
+ */
+export const cmdClaim: Command = (root, a, io) => {
+  if (!a.cfg.remote) {
+    throw new Refused('claims belong to a remote factory: set "remote" in factory.json (see the README\'s Remote factory section)');
+  }
+  const out = editing(root, a, 'claim', (job) => {
+    const me = identity();
+    if (samePerson(job.owner, me)) throw new Refused(`${job.id} is already yours`);
+    const was = job.owner ? personText(job.owner) : 'nobody';
+    if (!flag(a, 'take_over')) {
+      throw new Refused(`${job.id} is claimed by ${was}; a human takes it over with \`factory claim ${job.id} --take-over\``);
+    }
+    let where = '';
+    if (WORKTREE_STAGES.includes(job.stage) && job.branch) {
+      const main = mainCheckout();
+      const branch = job.branch;
+      const fetched = run('git', ['fetch', '-q', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`], main);
+      if (fetched.status !== 0) {
+        throw new Refused(
+          `${branch} is not on the code remote (origin of ${main}): ${was} must push it first ` +
+            `(git push origin ${branch}), then retry`,
+        );
+      }
+      const wt = join(root, 'worktrees', job.id);
+      if (!existsSync(wt)) {
+        const local = git(['rev-parse', '--verify', '-q', `refs/heads/${branch}`], main, false) !== '';
+        git(['worktree', 'add', ...(local ? [wt, branch] : ['-b', branch, wt, `origin/${branch}`])], main);
+        onRollback(() => {
+          git(['worktree', 'remove', '--force', wt], main, false);
+          if (!local) git(['branch', '-D', branch], main, false);
+        });
+      }
+      job.worktree = wt;
+      where = `worktree: ${wt}\n`;
+    }
+    job.owner = me;
+    log(job, `taken over by ${personText(me)} from ${was}`);
+    return `${job.id} is now claimed by ${personText(me)}\n${where}`;
+  });
+  io.stdout(out);
+};
+
+function needRemote(root: string, a: Args): RemoteConfig {
+  const remote = remoteOf(root, a.cfg);
+  if (!remote) throw new Refused(`no "remote" in ${configPath(root)}: this factory is local (see the README's Remote factory section)`);
+  return remote;
+}
+
+export const cmdRemoteStatus: Command = (root, a, io) => {
+  const remote = remoteOf(root, a.cfg);
+  if (!remote) {
+    io.stdout(`remote:     none (local mode: no "remote" in ${configPath(root)})\n`);
+    return;
+  }
+  const st = locked(root, () => remoteStatus(root, remote, flag(a, 'offline')));
+  if (st.warning) io.stderr(`factory: ${st.warning}\n`);
+  io.stdout(st.text);
+};
+
+export const cmdRemotePush: Command = (root, a, io) => {
+  const remote = needRemote(root, a);
+  const me = identity();
+  io.stdout(locked(root, () => remotePush(root, remote, me)));
+};
+
+/** Read commands pull first (unless --offline); without the remote they show the last-pulled state. */
+export function syncForRead(root: string, a: Args, io: Io): void {
+  const remote = remoteOf(root, a.cfg);
+  if (!remote) return;
+  const note = locked(root, () => pullForRead(root, remote, flag(a, 'offline'), identity));
+  if (note) io.stderr(note.split('\n').map((line) => `factory: ${line}\n`).join(''));
+}
+
 export const cmdConfig: Command = (root, a, io) => {
   const path = configPath(root);
   const source = existsSync(path) ? path : `defaults (create ${path} to override)`;
@@ -824,7 +1058,7 @@ export const cmdConfig: Command = (root, a, io) => {
 };
 
 export const cmdNote: Command = (root, a) => {
-  editing(root, s(a, 'job'), (job) => log(job, list(a, 'text').join(' ')));
+  editing(root, a, 'note', (job) => log(job, list(a, 'text').join(' ')));
 };
 
 export const cmdFollowupAdd: Command = (root, a, io) => {
@@ -834,7 +1068,7 @@ export const cmdFollowupAdd: Command = (root, a, io) => {
   if (!NAME.test(by)) {
     throw new Refused('--by must be a lowercase name like builder, verifier, security or human');
   }
-  const out = editing(root, s(a, 'job'), (job) => {
+  const out = editing(root, a, 'followup add', (job) => {
     job.followups ??= [];
     const items = job.followups;
     const n = Math.max(0, ...items.map((f) => f.n)) + 1;
@@ -856,7 +1090,7 @@ export const cmdFollowupAdd: Command = (root, a, io) => {
 
 export const cmdFollowupResolve: Command = (root, a, io) => {
   const n = a.n as number;
-  const out = editing(root, s(a, 'job'), (job) => {
+  const out = editing(root, a, `followup ${String(a.action)}`, (job) => {
     const item = (job.followups ?? []).find((f) => f.n === n);
     if (!item) throw new Refused(`${job.id} has no follow-up ${n}`);
     if (item.status !== 'open') throw new Refused(`follow-up ${n} is already ${item.status}`);
@@ -921,7 +1155,8 @@ export const cmdStatus: Command = (root, a, io) => {
       io.stdout(
         `  title:    ${str(j.title)}\n  job dir:  ${join(root, 'jobs', j.id)}\n` +
           `  worktree: ${str(j.worktree)}\n  branch:   ${str(j.branch)}  base: ${str(j.base)}\n` +
-          `  activity: ${str(j.activity)}\n  follow-ups: ${openFu} open (factory followup list ${j.id})\n`,
+          `  activity: ${str(j.activity)}\n  follow-ups: ${openFu} open (factory followup list ${j.id})\n` +
+          (j.owner ? `  owner:    ${personText(j.owner)}\n` : ''),
       );
     }
   }

@@ -8,6 +8,26 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- Remote factory: an optional `remote` key in `factory.json`, `{"url": "<git url or path>",
+  "branch": "<name>"}`, shares the job state through a git branch (a separate repo or an orphan
+  branch of the project repo) so a team runs one line and the history survives. `factory/jobs/`
+  becomes a checkout of that branch; worktrees stay local and are never stored. `factory init`
+  creates the branch (an orphan) or clones it. Every state-changing command pulls first, commits
+  only its job's directory as `factory: <command> <job id>` and pushes, retrying a lost push race;
+  the same job changed on both sides is refused, never merged, and two people creating jobs at once
+  get distinct ids. With no network a state-changing command refuses and changes nothing; read
+  commands (`status`, `followup list`, `stats`, `path`, `config`, `dashboard`) take `--offline` and
+  fall back to the last-pulled state. `start` records the job's `owner` (shown on the dashboard and
+  by `factory status <id>`); commands on a job someone else owns are refused except `approve`,
+  `merge`, `rework` and `close`, and the new human-gated `factory claim <id> --take-over` moves the
+  claim, recreating the worktree from the code remote. `factory remote status` and `factory remote
+  push` (publish an existing local factory) round it off. Without `remote`, nothing changes. Station
+  agents now say to stop and report when a remote factory refuses them, and never to run `claim`.
+  The state branch is not trusted blindly: symbolic links and submodules on it are refused, and a
+  `job.json` whose `id`, `branch` or `base` is not what the CLI writes is refused. The dashboard escapes
+  every `job.json` value it shows and is served with a Content-Security-Policy that lets it load and
+  send nothing beyond its own server (so images linked from job markdown to other sites no longer
+  load).
 - `factory-plugin-advisor` watches a repository's factory station agents. `stations [--repo
   <path>] [--json]` reads the line's history (`factory/jobs/*/job.json`, `proof.md` and the review
   files, old job.json files included) and reports, per station as `factory agents` resolves it
@@ -26,6 +46,11 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   `stations suggest` (the only pre-approved ones) after a job ships or when asked how the line is
   doing, and applies a draft only after a yes for that draft. These suggestions are never filed on
   GitHub.
+
+### Changed
+
+- `factory config` prints the new `remote` key (`null` by default), and the dashboard server no
+  longer serves anything under a `.git` directory.
 
 ## [0.4.0] - 2026-11-19
 
