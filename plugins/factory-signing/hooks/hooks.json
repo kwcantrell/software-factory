@@ -1,0 +1,18 @@
+{
+  "description": "factory-signing: before a Bash call that creates commits (git commit, merge, rebase, cherry-pick, revert, am, and the factory CLI's state-changing commands in remote mode) in a repository that requires signed commits, denies it when SSH signing is not usable (no key, the key not in the ssh-agent, gpg.format not ssh) or when the command turns signing off. Otherwise prints nothing. It never rewrites a command, and any failure of its own, or running past the timeout, allows.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/src/cli.ts", "hook"],
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

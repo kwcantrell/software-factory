@@ -59,7 +59,8 @@ git-style and match whole repo-relative paths: `**/` spans any number of directo
 anything, `*` and `?` stay within one path segment, everything else is literal. When a doc's code
 moves, or a new doc or plugin is added, update the map in the same change; `lint` says what is
 missing. In this repo each plugin's README covers its `src/**`, `package.json` and
-`.claude-plugin/plugin.json`, plus its `hooks/**` when it has hooks (`factory-plugin-advisor`; the
+`.claude-plugin/plugin.json`, plus its `hooks/**` when it has hooks (`factory-plugin-advisor`, `factory-plugin-discover`,
+`factory-signing`; the
 `factory` plugin's hooks are covered by the root `README.md`), and any other plugin's code it
 describes (the `factory-plugin-advisor` README also covers `plugins/factory/src/remote.ts`, which
 accepts its shared `advisor/` directory on the state branch, and the `factory-doctor` README also

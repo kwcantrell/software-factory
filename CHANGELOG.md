@@ -28,6 +28,22 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   a newly discovered requirement to the file in the job's commits. Existing project agents fail
   `factory agents check` until refreshed (`factory agents new <station> --force`, or add the
   section from the template).
+- factory-signing: a new plugin that makes every commit Claude makes (factory state commits,
+  builder commits on job branches, and any `git commit`, merge, rebase, cherry-pick, revert or am)
+  signed with the user's own SSH key through their ssh-agent. `factory-signing status` reports,
+  read-only, `gpg.format`, `user.signingkey`, `commit.gpgsign` and `tag.gpgsign` with their config
+  level, whether the agent is reachable and holds the key, a test signature, whether the repository
+  requires signing and why (`commit.gpgsign=true`, or a remote factory without `unsigned_ok`), and
+  whether the key is listed in `remote.allowed_signers` at HEAD, with one fix per problem (a key not
+  in the agent says to run `! ssh-add <key>`, since Claude cannot enter a passphrase). `setup` is a
+  dry run that prints the exact `git config` changes and applies them only with `--confirm`, in the
+  repository's local config by default (`--scope global` must be named); without `--key` it uses
+  the one key in the agent. `allowed-signers` prints `<user.email> <public key>` for the file. A
+  `PreToolUse` Bash hook denies a commit-making command (and the factory CLI's state-changing
+  commands in remote mode) in a repository that requires signing when signing is not usable or the
+  command turns it off, and never blocks on its own failure. It never generates a key, touches a
+  private key or bypasses signing; the skill pre-approves only `status`, `allowed-signers` and
+  `--help`.
 - Remote factory: signed state commits, verified at the merge gate. Every state commit the CLI makes
   in remote mode is signed with the person's own SSH key (`git commit -S` with `gpg.format ssh` and
   `user.signingkey`); a command that would change state refuses before changing anything, naming
