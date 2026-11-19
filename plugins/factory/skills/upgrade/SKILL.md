@@ -1,6 +1,6 @@
 ---
 name: upgrade
-description: Moved to factory-doctor migrate. Use when the user asks to upgrade, migrate or move a repo to the current (or another) software-factory version, or runs /factory:upgrade - this skill points to the factory-doctor skill's migrate, which plans the move up or down, applies it with confirmation and can update the plugins.
+description: Points to factory-doctor migrate, which replaced factory upgrade. Use only when the user runs /factory:upgrade; for moving a repo between releases, use the factory-doctor skill.
 allowed-tools: Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory upgrade --help)
 ---
 

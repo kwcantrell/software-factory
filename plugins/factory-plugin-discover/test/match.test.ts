@@ -116,6 +116,12 @@ test('"sign my git commits" ranks factory-signing first against this repository\
   }
 });
 
+test('upgrading software-factory ranks factory-doctor (migrate) first against the real marketplace', () => {
+  const catalog = readCatalog({ HOME: join(s.dir, 'empty-home') }, { pluginRoot: PLUGIN_ROOT, cwd: s.cwd });
+  const r = match(catalog, 'upgrade software-factory to the new version');
+  assert.equal(r.available[0]?.name, 'factory-doctor', JSON.stringify(r.available.map((e) => [e.name, e.score])));
+});
+
 test('ranking: the best skill in a plugin, with the reason, best first', () => {
   const t = sandbox({ installed: ALL, elsewhere: [], disabled: [] });
   try {
