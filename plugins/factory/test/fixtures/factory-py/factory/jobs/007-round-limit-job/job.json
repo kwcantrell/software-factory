@@ -1,0 +1,66 @@
+{
+  "id": "007-round-limit-job",
+  "title": "Round limit job",
+  "stage": "review",
+  "status": "needs-human",
+  "needs_human": "changes still requested after 1 round (solo)",
+  "activity": "needs human: changes still requested after 1 round (solo)",
+  "spec": null,
+  "spec_sha": null,
+  "branch": "factory/007-round-limit-job",
+  "base": "b6eb05b76f9b0b842fbb78dddb0f703073552747",
+  "base_branch": "main",
+  "worktree": "/tmp/tmp.NSYipNDM9q/repo/factory/worktrees/007-round-limit-job",
+  "proof_attempts": 0,
+  "rounds": [
+    {
+      "n": 1,
+      "reviewers": {
+        "solo": {
+          "verdict": "changes",
+          "at": "2026-11-19T06:09:34Z"
+        }
+      }
+    }
+  ],
+  "followups": [],
+  "created": "2026-11-19T06:09:34Z",
+  "history": [
+    {
+      "at": "2026-11-19T06:09:34Z",
+      "stage": "intake",
+      "event": "created"
+    },
+    {
+      "at": "2026-11-19T06:09:34Z",
+      "stage": "build",
+      "event": "building"
+    },
+    {
+      "at": "2026-11-19T06:09:34Z",
+      "stage": "proof",
+      "event": "awaiting independent proof"
+    },
+    {
+      "at": "2026-11-19T06:09:34Z",
+      "stage": "review",
+      "event": "proof passed"
+    },
+    {
+      "at": "2026-11-19T06:09:34Z",
+      "stage": "review",
+      "event": "review round 1 opened"
+    },
+    {
+      "at": "2026-11-19T06:09:34Z",
+      "stage": "review",
+      "event": "round 1: solo -> changes"
+    },
+    {
+      "at": "2026-11-19T06:09:34Z",
+      "stage": "review",
+      "event": "needs human: changes still requested after 1 round (solo)"
+    }
+  ],
+  "updated": "2026-11-19T06:09:34Z"
+}

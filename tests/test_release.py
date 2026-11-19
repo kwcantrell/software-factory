@@ -107,8 +107,17 @@ class ReleaseCheck(unittest.TestCase):
         self.write_plugin("9.9.9")
         self.assertEqual(self.run_release().returncode, 1)
 
+    def test_plugin_json_is_found_through_the_marketplace_source(self):
+        (self.root / "plugins" / "factory" / ".claude-plugin").mkdir(parents=True)
+        (self.root / "plugins" / "factory" / ".claude-plugin" / "plugin.json").write_text(
+            json.dumps({"name": "factory", "version": "1.1.0"}))
+        (self.root / ".claude-plugin" / "marketplace.json").write_text(json.dumps(
+            {"name": "software-factory", "plugins": [{"name": "factory", "source": "./plugins/factory"}]}))
+        self.assertEqual(self.run_release("v1.1.0").stdout, "- Older.\n")
+        self.assertEqual(self.run_release("v1.2.0").returncode, 1)
+
     def test_this_repository_is_releasable_at_its_current_version(self):
-        version = json.loads((REPO / ".claude-plugin" / "plugin.json").read_text())["version"]
+        version = json.loads((REPO / "plugins" / "factory" / ".claude-plugin" / "plugin.json").read_text())["version"]
         p = self.run_release(f"v{version}", root=REPO)
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertTrue(p.stdout.strip())

@@ -1,0 +1,7 @@
+006-closed-job                                 done    closed      
+  title:    Closed job
+  job dir:  <ROOT>/jobs/006-closed-job
+  worktree: None
+  branch:   factory/006-closed-job  base: b6eb05b76f9b0b842fbb78dddb0f703073552747
+  activity: closed without merging: not needed
+  follow-ups: 0 open (factory followup list 006-closed-job)

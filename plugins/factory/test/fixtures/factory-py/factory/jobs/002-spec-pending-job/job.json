@@ -1,0 +1,31 @@
+{
+  "id": "002-spec-pending-job",
+  "title": "Spec pending job",
+  "stage": "intake",
+  "status": "needs-human",
+  "needs_human": "review task.md and approve the spec",
+  "activity": "needs human: review task.md and approve the spec",
+  "spec": "pending",
+  "spec_sha": null,
+  "branch": null,
+  "base": null,
+  "base_branch": null,
+  "worktree": null,
+  "proof_attempts": 0,
+  "rounds": [],
+  "followups": [],
+  "created": "2026-11-19T06:09:32Z",
+  "history": [
+    {
+      "at": "2026-11-19T06:09:32Z",
+      "stage": "intake",
+      "event": "created"
+    },
+    {
+      "at": "2026-11-19T06:09:32Z",
+      "stage": "intake",
+      "event": "needs human: review task.md and approve the spec"
+    }
+  ],
+  "updated": "2026-11-19T06:09:32Z"
+}

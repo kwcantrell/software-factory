@@ -1,0 +1,7 @@
+007-round-limit-job                            review  needs-human r1[x]  !! changes still requested after 1 round (solo)
+  title:    Round limit job
+  job dir:  <ROOT>/jobs/007-round-limit-job
+  worktree: /tmp/tmp.NSYipNDM9q/repo/factory/worktrees/007-round-limit-job
+  branch:   factory/007-round-limit-job  base: b6eb05b76f9b0b842fbb78dddb0f703073552747
+  activity: needs human: changes still requested after 1 round (solo)
+  follow-ups: 0 open (factory followup list 007-round-limit-job)

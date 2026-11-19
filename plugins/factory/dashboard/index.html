@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Factory</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #ffffff; --ink: #1d1c1a; --muted: #77746d; --faint: #a9a69f;
+    --line: #e4e2dc; --hover: #fbfaf8;
+    --ok: #2c7a4b; --ok-bg: #e6f3ea; --bad: #b3412a; --bad-bg: #fbe9e4;
+    --human: #a86200; --human-bg: #fff4d9; --human-line: #e9b949;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #131312; --panel: #1c1c1a; --ink: #ecebe7; --muted: #96938b; --faint: #5f5d57;
+      --line: #2c2b28; --hover: #222220;
+      --ok: #6cc890; --ok-bg: #17301f; --bad: #ec8169; --bad-bg: #3a1c15;
+      --human: #f0b548; --human-bg: #2c2412; --human-line: #8a6515;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 var(--sans);
+         display: flex; flex-direction: column; -webkit-font-smoothing: antialiased; }
+
+  header.top { display: flex; align-items: center; gap: 14px; padding: 16px 24px 12px; }
+  header.top h1 { font-size: 15px; font-weight: 650; margin: 0; letter-spacing: -.01em; }
+  .counts { color: var(--muted); font-size: 13px; }
+  .pill-human { background: var(--human-bg); color: var(--human); border: 1px solid var(--human-line);
+                border-radius: 999px; padding: 1px 10px; font-size: 12px; font-weight: 600; }
+  .stats { margin-left: auto; color: var(--muted); font-size: 12px; display: flex; gap: 16px; }
+  .stats b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+  @media (max-width: 900px) { .stats { display: none; } .live { margin-left: auto; } }
+  .live { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+  .live i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+  .live.off i { background: var(--bad); }
+
+  main { flex: 1; min-height: 0; overflow-x: auto; padding: 0 16px 16px; }
+  .board { display: grid; grid-template-columns: repeat(6, minmax(212px, 1fr)); gap: 0; height: 100%; min-width: min-content; }
+  .col { display: flex; flex-direction: column; min-height: 0; padding: 0 8px; border-left: 1px solid var(--line); }
+  .col:first-child { border-left: 0; }
+  .col h2 { margin: 0; padding: 8px 2px 10px; font-size: 11px; font-weight: 600; letter-spacing: .08em;
+            text-transform: uppercase; color: var(--muted); display: flex; gap: 6px; }
+  .col h2 span { color: var(--faint); font-weight: 500; }
+  .cards { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+          cursor: pointer; text-align: left; font: inherit; color: inherit; width: 100%; display: block; }
+  .card:hover { background: var(--hover); }
+  .card:focus-visible, .tab:focus-visible, .close:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+  .card.open { border-color: var(--ink); }
+  .card .id { font: 11px var(--mono); color: var(--faint); }
+  .card .title { font-weight: 550; margin: 1px 0 0; overflow-wrap: anywhere; }
+  .card .activity { color: var(--muted); font-size: 12px; margin-top: 4px; overflow-wrap: anywhere; }
+  .card .age { color: var(--faint); font-size: 11px; margin-top: 6px; }
+  .card.human { border-color: var(--human-line); background: var(--human-bg); box-shadow: inset 3px 0 0 var(--human); }
+  .needs { color: var(--human); font-size: 12px; margin-top: 5px; overflow-wrap: anywhere; }
+  .needs b { display: block; font-size: 10px; letter-spacing: .09em; text-transform: uppercase; }
+  .card.closed .title { color: var(--muted); text-decoration: line-through; }
+
+  .rounds { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+  .round { display: grid; grid-template-columns: 16px 1fr; align-items: start; gap: 4px; }
+  .round .n { font: 10px/19px var(--mono); color: var(--faint); }
+  .round .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; line-height: 1; padding: 3px 7px 3px 5px;
+          border-radius: 999px; border: 1px dashed var(--faint); color: var(--muted); white-space: nowrap; }
+  .chip::before { content: ""; width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--faint);
+                  display: inline-grid; place-items: center; font-size: 9px; font-weight: 700; }
+  .chip.approve { border: 1px solid transparent; background: var(--ok-bg); color: var(--ok); }
+  .chip.changes { border: 1px solid transparent; background: var(--bad-bg); color: var(--bad); }
+  .chip.approve::before { content: "\2713"; border: 0; width: auto; height: auto; }
+  .chip.changes::before { content: "\2715"; border: 0; width: auto; height: auto; }
+  .chip.landed { animation: land .5s ease-out; }
+  @keyframes land { from { transform: scale(.8); opacity: .3; } 60% { transform: scale(1.06); } to { transform: none; opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .chip.landed { animation: none; } }
+
+  .empty { margin: 18vh auto 0; max-width: 460px; text-align: center; color: var(--muted); }
+  .empty code, .md code { font: 12.5px var(--mono); background: color-mix(in srgb, var(--ink) 7%, transparent);
+                          padding: 1px 5px; border-radius: 4px; }
+
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.25); opacity: 0; pointer-events: none; transition: opacity .15s; }
+  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(720px, 100vw); background: var(--panel);
+            border-left: 1px solid var(--line); display: flex; flex-direction: column;
+            transform: translateX(100%); transition: transform .18s ease-out; }
+  body.has-drawer .scrim { opacity: 1; pointer-events: auto; }
+  body.has-drawer .drawer { transform: none; }
+  @media (prefers-reduced-motion: reduce) { .drawer, .scrim { transition: none; } }
+  .dhead { padding: 18px 24px 0; }
+  .dhead .row { display: flex; align-items: baseline; gap: 10px; }
+  .dhead .id { font: 12px var(--mono); color: var(--muted); }
+  .stage { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+           border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; }
+  .close { margin-left: auto; border: 0; background: none; color: var(--muted); font-size: 20px; line-height: 1;
+           cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+  .close:hover { color: var(--ink); }
+  .dhead h2 { margin: 4px 0 0; font-size: 19px; letter-spacing: -.01em; overflow-wrap: anywhere; }
+  .dhead .meta { color: var(--muted); font: 12px var(--mono); margin-top: 4px; overflow-wrap: anywhere; }
+  .dhead .needs { background: var(--human-bg); border: 1px solid var(--human-line); border-radius: 8px;
+                  padding: 8px 12px; margin-top: 12px; font-size: 13px; }
+  .tabs { display: flex; gap: 2px; padding: 14px 20px 0; border-bottom: 1px solid var(--line); overflow-x: auto; flex: none; }
+  .tab { border: 0; background: none; font: 13px var(--sans); color: var(--muted); padding: 7px 9px; cursor: pointer;
+         border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+  .tab:hover { color: var(--ink); }
+  .tab.on { color: var(--ink); border-bottom-color: var(--ink); font-weight: 550; }
+  .dbody { flex: 1; overflow-y: auto; padding: 20px 24px 40px; }
+
+  .md { font-size: 14.5px; line-height: 1.6; overflow-wrap: anywhere; }
+  .md > :first-child { margin-top: 0; }
+  .md h1 { font-size: 20px; } .md h2 { font-size: 16.5px; } .md h3 { font-size: 14.5px; }
+  .md h1, .md h2, .md h3, .md h4 { margin: 1.5em 0 .5em; line-height: 1.3; letter-spacing: -.01em; }
+  .md h4, .md h5, .md h6 { font-size: 13px; color: var(--muted); }
+  .md p, .md ul, .md ol, .md pre, .md table, .md blockquote { margin: 0 0 .9em; }
+  .md ul, .md ol { padding-left: 1.4em; } .md li { margin: .15em 0; } .md li > ul, .md li > ol { margin: .15em 0 0; }
+  .md li.task { list-style: none; margin-left: -1.4em; }
+  .md pre { background: color-mix(in srgb, var(--ink) 5%, transparent); border: 1px solid var(--line);
+            border-radius: 8px; padding: 10px 12px; overflow-x: auto; font: 12.5px/1.5 var(--mono); }
+  .md pre code { background: none; padding: 0; font: inherit; }
+  .md blockquote { border-left: 3px solid var(--line); padding-left: 12px; color: var(--muted); }
+  .md table { border-collapse: collapse; display: block; overflow-x: auto; font-size: 13.5px; overflow-wrap: normal; }
+  .md th { white-space: nowrap; }
+  .md th, .md td { border: 1px solid var(--line); padding: 5px 10px; text-align: left; vertical-align: top; }
+  .md th { background: color-mix(in srgb, var(--ink) 4%, transparent); font-weight: 600; }
+  .md a { color: inherit; text-underline-offset: 2px; }
+  .md img { max-width: 100%; border: 1px solid var(--line); border-radius: 6px; }
+  .md hr { border: 0; border-top: 1px solid var(--line); margin: 1.4em 0; }
+  .hist { list-style: none; padding: 0; margin: 0; font-size: 13px; }
+  .hist li { display: grid; grid-template-columns: 132px 58px 1fr; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--line); }
+  .hist time, .hist .st { color: var(--muted); font: 12px var(--mono); }
+  .note { color: var(--muted); }
+
+  .views { display: flex; gap: 2px; background: color-mix(in srgb, var(--ink) 6%, transparent); border-radius: 8px; padding: 2px; }
+  .views button { border: 0; background: none; font: 12.5px var(--sans); color: var(--muted); padding: 3px 10px;
+                  border-radius: 6px; cursor: pointer; display: flex; gap: 6px; align-items: center; }
+  .views button:hover { color: var(--ink); }
+  .views button.on { background: var(--panel); color: var(--ink); font-weight: 550; box-shadow: 0 0 0 1px var(--line); }
+  .views button:focus-visible, .fu-job:focus-visible, .seg button:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+  .views .n { font-variant-numeric: tabular-nums; color: var(--faint); font-weight: 500; }
+  .card .foot { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .card .foot .age { margin-top: 0; }
+  .fu-badge { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; }
+
+  .fu-page { max-width: 860px; margin: 0 auto; padding: 4px 8px 40px; }
+  .fu-bar { display: flex; align-items: center; gap: 12px; margin: 4px 0 16px; color: var(--muted); font-size: 13px; }
+  .seg { display: flex; gap: 2px; margin-left: auto; }
+  .seg button { border: 1px solid var(--line); background: var(--panel); color: var(--muted); font: 12px var(--sans);
+                padding: 2px 10px; border-radius: 6px; cursor: pointer; }
+  .seg button.on { color: var(--ink); border-color: var(--ink); }
+  .fu-group { margin-bottom: 22px; }
+  .fu-job { display: flex; align-items: baseline; gap: 8px; border: 0; background: none; padding: 0; margin: 0 0 8px;
+            font: 600 14px var(--sans); color: var(--ink); cursor: pointer; text-align: left; }
+  .fu-job:hover { text-decoration: underline; text-underline-offset: 2px; }
+  .fu-job .id { font: 11px var(--mono); color: var(--faint); font-weight: 400; }
+  .fu-job .stage { font-weight: 400; }
+  .fus { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+  .fu { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }
+  .fu .meta { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .fu .meta .num { font: 11px var(--mono); color: var(--faint); }
+  .fu .meta .who { color: var(--ink); font-weight: 550; }
+  .fu .md { font-size: 14px; }
+  .fu .md > :last-child { margin-bottom: 0; }
+  .fu .st { margin-left: auto; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; border-radius: 999px; padding: 1px 8px; }
+  .fu .st.open { color: var(--human); background: var(--human-bg); }
+  .fu .st.done { color: var(--ok); background: var(--ok-bg); }
+  .fu .st.dropped { color: var(--muted); border: 1px solid var(--line); }
+  .fu.closed .md { color: var(--muted); }
+  .fu .res { margin-top: 6px; font-size: 12.5px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Factory</h1>
+  <nav class="views" id="views" aria-label="View"></nav>
+  <span class="counts" id="counts"></span>
+  <span class="stats" id="stats"></span>
+  <span class="live" id="live"><i></i><span>connecting</span></span>
+</header>
+<main id="main"></main>
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-label="Job details">
+  <div class="dhead" id="dhead"></div>
+  <nav class="tabs" id="tabs"></nav>
+  <div class="dbody" id="dbody"></div>
+</aside>
+
+<script>
+const STAGES = ['intake', 'build', 'proof', 'review', 'ship', 'done'];
+const FILE_ORDER = ['task.md', 'build.md', 'proof.md', 'review-', 'ship.md'];
+const POLL_MS = 2000;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+let jobs = [], boardSig = '', firstLoad = true;
+let page = new URLSearchParams(location.search).has('followups') ? 'followups' : 'board', fuFilter = 'open';
+const seenVerdicts = new Set();
+const view = { id: null, file: null, files: [], text: null, headSig: '', tabSig: '' };
+
+// ---- data: the file system is the source of truth, read through `factory dashboard`'s directory listings
+
+async function get(url) {
+  const r = await fetch(url, { cache: 'no-store' });
+  if (!r.ok) throw new Error(url + ' ' + r.status);
+  return r;
+}
+async function listDir(url) {
+  const doc = new DOMParser().parseFromString(await (await get(url)).text(), 'text/html');
+  return [...doc.querySelectorAll('a')].map(a => a.getAttribute('href'))
+    .filter(h => h && !/^([?/#.]|[a-z]+:)/i.test(h));
+}
+async function loadJobs() {
+  const dirs = (await listDir('jobs/')).filter(h => h.endsWith('/'));
+  const loaded = await Promise.all(dirs.map(d => get('jobs/' + d + 'job.json').then(r => r.json()).catch(() => null)));
+  return loaded.filter(j => j && j.id && STAGES.includes(j.stage));
+}
+
+// ---- board
+
+const ago = iso => {
+  const s = Math.max(0, (Date.now() - new Date(iso)) / 1000);
+  return s < 60 ? 'just now' : s < 3600 ? Math.floor(s / 60) + 'm ago' : s < 86400 ? Math.floor(s / 3600) + 'h ago' : Math.floor(s / 86400) + 'd ago';
+};
+const isHuman = j => j.status === 'needs-human';
+const followups = j => Array.isArray(j.followups) ? j.followups : [];
+const openFu = j => followups(j).filter(f => f.status === 'open').length;
+const when = iso => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+// One follow-up. Its text is markdown written by an agent or a human; md() escapes it.
+function fuHtml(j, f) {
+  const res = f.status !== 'open'
+    ? `<div class="res">${f.status === 'done' ? 'Done' : 'Dropped'}${f.resolved_at ? ' ' + esc(when(f.resolved_at)) : ''}${f.resolution ? ': ' + esc(f.resolution) : ''}</div>` : '';
+  return `<li class="fu${f.status === 'open' ? '' : ' closed'}">
+    <div class="meta"><span class="num">#${esc(f.n)}</span><span class="who">${esc(f.by)}</span>
+      <span>during ${esc(f.stage)}</span><time>${esc(when(f.at))}</time><span class="st ${esc(f.status)}">${esc(f.status)}</span></div>
+    <div class="md">${md(String(f.text || ''), jobBase(j.id))}</div>${res}</li>`;
+}
+const fuOrder = (a, b) => (a.status !== 'open') - (b.status !== 'open') || a.n - b.n;
+
+function roundsHtml(j) {
+  if (!j.rounds || !j.rounds.length) return '';
+  return '<div class="rounds">' + j.rounds.map(r =>
+    `<div class="round"><span class="n">R${r.n}</span><span class="chips">` + Object.entries(r.reviewers).map(([name, v]) => {
+      const key = `${j.id}/${r.n}/${name}/${v.verdict}`;
+      const fresh = v.verdict && !firstLoad && !seenVerdicts.has(key);
+      if (v.verdict) seenVerdicts.add(key);
+      const label = v.verdict === 'approve' ? 'approved' : v.verdict === 'changes' ? 'changes requested' : 'pending';
+      return `<span class="chip ${v.verdict || ''}${fresh ? ' landed' : ''}" title="${esc(name)}: ${label}">${esc(name)}</span>`;
+    }).join('') + '</span></div>').join('') + '</div>';
+}
+
+function cardHtml(j) {
+  const cls = ['card', isHuman(j) && 'human', j.status === 'closed' && 'closed', j.id === view.id && 'open'].filter(Boolean).join(' ');
+  const line = isHuman(j)
+    ? `<div class="needs"><b>Needs you</b>${esc(j.needs_human)}</div>`
+    : j.activity ? `<div class="activity">${esc(j.activity)}</div>` : '';
+  return `<button class="${cls}" data-id="${esc(j.id)}">
+    <div class="id">${esc(j.id.split('-')[0])}</div>
+    <div class="title">${esc(j.title)}</div>${line}${roundsHtml(j)}
+    <div class="foot"><span class="age">${ago(j.updated)}</span>${openFu(j) ? `<span class="fu-badge" title="Open follow-ups">${openFu(j)} follow-up${openFu(j) === 1 ? '' : 's'}</span>` : ''}</div></button>`;
+}
+
+// Line metrics, derived from job history (same definitions as `factory stats`).
+function statsHtml() {
+  const first = [], rounds = [], hours = [];
+  for (const j of jobs) {
+    const ev = j.history || [];
+    const proof = ev.find(h => /^proof (passed|failed)/.test(h.event));
+    if (proof) first.push(proof.event.startsWith('proof passed'));
+    const ok = ev.find(h => h.event.startsWith('approved in round '));
+    if (ok) { rounds.push(+ok.event.split(' ').pop()); hours.push((new Date(ok.at) - new Date(j.created)) / 36e5); }
+  }
+  const out = [];
+  if (first.length) out.push(`<span title="Jobs whose first independent proof passed"><b>${Math.round(100 * first.filter(Boolean).length / first.length)}%</b> first-pass proof</span>`);
+  if (rounds.length) {
+    const avg = rounds.reduce((a, b) => a + b, 0) / rounds.length, med = hours.sort((a, b) => a - b)[hours.length >> 1];
+    out.push(`<span title="Average review rounds until every reviewer approved"><b>${avg.toFixed(1)}</b> rounds to approval</span>`);
+    out.push(`<span title="Median time from intake to approval"><b>${med < 1 ? Math.max(1, Math.round(med * 60)) + 'm' : med.toFixed(1) + 'h'}</b> to approval</span>`);
+  }
+  return out.join('');
+}
+
+function renderBoard() {
+  const sig = JSON.stringify(jobs) + view.id + page + fuFilter + Math.floor(Date.now() / 30000);
+  if (sig === boardSig) return;
+  boardSig = sig;
+  const totalFu = jobs.reduce((n, j) => n + openFu(j), 0);
+  $('views').innerHTML = `<button data-page="board" class="${page === 'board' ? 'on' : ''}">Board</button>` +
+    `<button data-page="followups" class="${page === 'followups' ? 'on' : ''}" title="Open follow-ups across all jobs">Follow-ups<span class="n">${totalFu || ''}</span></button>`;
+  const human = jobs.filter(isHuman).length, active = jobs.filter(j => j.stage !== 'done').length;
+  $('counts').innerHTML = jobs.length
+    ? `${active} in progress` + (human ? ` &nbsp;<span class="pill-human">${human} need${human === 1 ? 's' : ''} you</span>` : '')
+    : '';
+  $('stats').innerHTML = statsHtml();
+  document.title = (human ? `(${human}) ` : '') + 'Factory';
+  if (!jobs.length) {
+    $('main').innerHTML = `<div class="empty"><p>No jobs yet.</p><p>Run <code>/factory:run &lt;request&gt;</code> in Claude Code and jobs will appear here as they move through the line.</p></div>`;
+    return;
+  }
+  if (page === 'followups') { $('main').innerHTML = followupsPage(); return; }
+  const scroll = [...document.querySelectorAll('.cards')].map(c => c.scrollTop);
+  $('main').innerHTML = '<div class="board">' + STAGES.map(stage => {
+    const col = jobs.filter(j => j.stage === stage).sort((a, b) =>
+      (isHuman(b) - isHuman(a)) || (stage === 'done' ? b.updated.localeCompare(a.updated) : a.id.localeCompare(b.id)));
+    return `<section class="col"><h2>${stage}<span>${col.length || ''}</span></h2><div class="cards">${col.map(cardHtml).join('')}</div></section>`;
+  }).join('') + '</div>';
+  document.querySelectorAll('.cards').forEach((c, i) => c.scrollTop = scroll[i] || 0);
+}
+
+// Every job's follow-ups in one list, newest job first; open ones lead within a job.
+function followupsPage() {
+  const groups = jobs.map(j => [j, followups(j).filter(f => fuFilter === 'all' || f.status === 'open').sort(fuOrder)])
+    .filter(([, fs]) => fs.length).sort(([a], [b]) => b.id.localeCompare(a.id));
+  const open = jobs.reduce((n, j) => n + openFu(j), 0), all = jobs.reduce((n, j) => n + followups(j).length, 0);
+  const bar = `<div class="fu-bar"><span>${open} open across ${jobs.filter(openFu).length} job${jobs.filter(openFu).length === 1 ? '' : 's'}${all > open ? ` &middot; ${all - open} resolved` : ''}</span>
+    <span class="seg"><button data-filter="open" class="${fuFilter === 'open' ? 'on' : ''}">Open</button><button data-filter="all" class="${fuFilter === 'all' ? 'on' : ''}">All</button></span></div>`;
+  const body = groups.length ? groups.map(([j, fs]) => `<section class="fu-group">
+      <button class="fu-job" data-id="${esc(j.id)}"><span class="id">${esc(j.id.split('-')[0])}</span>${esc(j.title)}<span class="stage">${esc(j.stage)}</span></button>
+      <ul class="fus">${fs.map(f => fuHtml(j, f)).join('')}</ul></section>`).join('')
+    : `<div class="empty"><p>${all ? 'No open follow-ups.' : 'No follow-ups yet.'}</p><p>Stations record later work a job turns up with <code>factory followup add &lt;job&gt; --by &lt;who&gt; &lt;text&gt;</code>.</p></div>`;
+  return `<div class="fu-page">${bar}${body}</div>`;
+}
+
+function setPage(p) {
+  page = p;
+  const q = p === 'followups' ? '?followups' : '';
+  history.replaceState(null, '', location.pathname + q + location.hash);
+  renderBoard();
+}
+
+// ---- drawer
+
+const rank = f => { const i = FILE_ORDER.findIndex(p => f.startsWith(p)); return i < 0 ? FILE_ORDER.length : i; };
+const jobBase = id => 'jobs/' + encodeURIComponent(id) + '/';
+
+async function refreshDrawer() {
+  const j = jobs.find(x => x.id === view.id);
+  if (!j) { if (view.id && !firstLoad) closeDrawer(); return; }
+
+  const headSig = JSON.stringify([j.stage, j.status, j.needs_human, j.branch, j.title]);
+  const VIRTUAL = ['~followups', '~history'];
+  if (headSig !== view.headSig) {
+    view.headSig = headSig;
+    $('dhead').innerHTML = `<div class="row"><span class="id">${esc(j.id)}</span><span class="stage">${esc(j.stage)}</span>
+      <button class="close" id="close" aria-label="Close">&times;</button></div>
+      <h2>${esc(j.title)}</h2>${j.branch ? `<div class="meta">${esc(j.branch)}</div>` : ''}
+      ${isHuman(j) ? `<div class="needs"><b>Needs you</b>${esc(j.needs_human)}</div>` : ''}`;
+  }
+
+  let files = [];
+  try { files = (await listDir(jobBase(j.id))).filter(h => /\.md$/i.test(h)).map(decodeURIComponent); } catch {}
+  if (view.id !== j.id) return;
+  files.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, undefined, { numeric: true }));
+  view.files = files;
+  if (!VIRTUAL.includes(view.file) && !files.includes(view.file)) { view.file = files[files.length - 1] || '~history'; view.text = null; }
+
+  const tabSig = files.join('|') + '>' + view.file;
+  if (tabSig !== view.tabSig) {
+    view.tabSig = tabSig;
+    $('tabs').innerHTML = [...files, ...VIRTUAL].map(f =>
+      `<button class="tab${f === view.file ? ' on' : ''}" data-file="${esc(f)}">${esc(f === '~history' ? 'history' : f === '~followups' ? 'follow-ups' : f.replace(/\.md$/i, ''))}</button>`).join('');
+    history.replaceState(null, '', '#' + encodeURIComponent(j.id) + '/' + encodeURIComponent(view.file));
+  }
+
+  let text;
+  if (view.file === '~history') text = JSON.stringify(j.history);
+  else if (view.file === '~followups') text = '~fu' + JSON.stringify(followups(j));
+  else { try { text = await (await get(jobBase(j.id) + encodeURIComponent(view.file))).text(); } catch { text = ''; } }
+  if (view.id !== j.id || text === view.text) return;
+  view.text = text;
+  $('dbody').innerHTML = view.file === '~followups'
+    ? (followups(j).length ? `<ul class="fus">${[...followups(j)].sort(fuOrder).map(f => fuHtml(j, f)).join('')}</ul>`
+        : '<p class="note">No follow-ups recorded for this job.</p>')
+    : view.file === '~history'
+    ? '<ul class="hist">' + [...(j.history || [])].reverse().map(h =>
+        `<li><time>${esc(when(h.at))}</time><span class="st">${esc(h.stage)}</span><span>${esc(h.event)}</span></li>`).join('') + '</ul>'
+    : text.trim() ? `<article class="md">${md(text, jobBase(j.id))}</article>` : '<p class="note">This file is empty.</p>';
+}
+
+function openDrawer(id, file, quiet) {
+  Object.assign(view, { id, file: file || null, files: [], text: null, headSig: '', tabSig: '' });
+  $('dbody').innerHTML = ''; $('tabs').innerHTML = '';
+  document.body.classList.add('has-drawer');
+  renderBoard(); refreshDrawer().then(() => !quiet && $('close') && $('close').focus());
+}
+function closeDrawer() {
+  const card = view.id && document.querySelector(`.card[data-id="${CSS.escape(view.id)}"]`);
+  view.id = null;
+  document.body.classList.remove('has-drawer');
+  history.replaceState(null, '', location.pathname + location.search);
+  renderBoard();
+  if (card) { const again = document.querySelector(`.card[data-id="${CSS.escape(card.dataset.id)}"]`); again && again.focus(); }
+}
+
+document.addEventListener('click', e => {
+  const pg = e.target.closest('#views button'), filt = e.target.closest('.seg button'), fj = e.target.closest('.fu-job');
+  if (pg) return setPage(pg.dataset.page);
+  if (filt) { fuFilter = filt.dataset.filter; return renderBoard(); }
+  if (fj) return openDrawer(fj.dataset.id, '~followups');
+  const card = e.target.closest('.card'), tab = e.target.closest('.tab'), link = e.target.closest('.md a');
+  if (card) openDrawer(card.dataset.id);
+  else if (tab) { view.file = tab.dataset.file; view.text = null; $('dbody').scrollTop = 0; refreshDrawer(); }
+  else if (e.target.closest('#close') || e.target.id === 'scrim') closeDrawer();
+  else if (link && view.id) {   // links between a job's own markdown files stay in the drawer
+    const href = link.getAttribute('href'), base = jobBase(view.id);
+    const name = href.startsWith(base) && decodeURIComponent(href.slice(base.length));
+    if (name && view.files.includes(name)) { e.preventDefault(); view.file = name; view.text = null; $('dbody').scrollTop = 0; refreshDrawer(); }
+  }
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && view.id) closeDrawer(); });
+
+// ---- markdown (small and safe: everything is escaped before any tag is added)
+
+function md(src, base) {
+  const url = u => /^\s*(javascript|data|vbscript):/i.test(u) ? '#' : /^([a-z][a-z0-9+.-]*:|\/|#)/i.test(u) ? u : base + u;
+  const inline = s => {
+    const code = [];
+    s = s.replace(/`([^`]+)`/g, (m, c) => '\u0001' + (code.push(c) - 1) + '\u0001');
+    s = esc(s)
+      .replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (m, a, u) => `<img alt="${a}" src="${url(u)}">`)
+      .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, t, u) => `<a href="${url(u)}" target="_blank" rel="noopener">${t}</a>`)
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|[^\w*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>')
+      .replace(/(^|[^\w_])_([^_\s][^_]*)_(?![\w_])/g, '$1<em>$2</em>')
+      .replace(/~~([^~]+)~~/g, '<del>$1</del>');
+    return s.replace(/\u0001(\d+)\u0001/g, (m, i) => `<code>${esc(code[i])}</code>`);
+  };
+  const ITEM = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/, FENCE = /^\s*(```|~~~)/, HR = /^\s*([-*_])(\s*\1){2,}\s*$/;
+  const SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+  const cells = l => l.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+  const list = rows => {
+    let out = ''; const stack = [];
+    for (const row of rows) {
+      const m = row.match(ITEM);
+      if (!m) { out += ' ' + inline(row.trim()); continue; }
+      const indent = m[1].length, tag = /\d/.test(m[2]) ? 'ol' : 'ul';
+      while (stack.length && indent < stack[stack.length - 1].indent) out += '</li></' + stack.pop().tag + '>';
+      if (stack.length && indent === stack[stack.length - 1].indent) out += '</li>';
+      else { out += '<' + tag + '>'; stack.push({ indent, tag }); }
+      const task = m[3].match(/^\[([ xX])\]\s+(.*)$/);
+      out += task ? `<li class="task"><input type="checkbox" disabled${task[1] === ' ' ? '' : ' checked'}> ${inline(task[2])}` : '<li>' + inline(m[3]);
+    }
+    while (stack.length) out += '</li></' + stack.pop().tag + '>';
+    return out;
+  };
+
+  const lines = src.replace(/\r\n?/g, '\n').split('\n');
+  let out = '', i = 0;
+  const blockStart = l => FENCE.test(l) || /^#{1,6}\s/.test(l) || /^\s*>/.test(l) || ITEM.test(l) || HR.test(l);
+  while (i < lines.length) {
+    const l = lines[i];
+    if (!l.trim()) { i++; continue; }
+    if (FENCE.test(l)) {
+      const mark = l.match(FENCE)[1], body = [];
+      for (i++; i < lines.length && !lines[i].trim().startsWith(mark); i++) body.push(lines[i]);
+      i++; out += `<pre><code>${esc(body.join('\n'))}</code></pre>`; continue;
+    }
+    const h = l.match(/^(#{1,6})\s+(.*?)\s*#*\s*$/);
+    if (h) { out += `<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`; i++; continue; }
+    if (HR.test(l)) { out += '<hr>'; i++; continue; }
+    if (/^\s*>/.test(l)) {
+      const body = [];
+      for (; i < lines.length && /^\s*>/.test(lines[i]); i++) body.push(lines[i].replace(/^\s*>\s?/, ''));
+      out += `<blockquote>${md(body.join('\n'), base)}</blockquote>`; continue;
+    }
+    if (l.includes('|') && i + 1 < lines.length && SEP.test(lines[i + 1])) {
+      const head = cells(l), rows = [];
+      for (i += 2; i < lines.length && lines[i].includes('|') && lines[i].trim(); i++) rows.push(cells(lines[i]));
+      out += '<table><thead><tr>' + head.map(c => `<th>${inline(c)}</th>`).join('') + '</tr></thead><tbody>' +
+        rows.map(r => '<tr>' + head.map((_, k) => `<td>${inline(r[k] || '')}</td>`).join('') + '</tr>').join('') + '</tbody></table>';
+      continue;
+    }
+    if (ITEM.test(l)) {
+      const rows = [];
+      for (; i < lines.length && lines[i].trim() && (ITEM.test(lines[i]) || /^\s+/.test(lines[i])); i++) rows.push(lines[i]);
+      out += list(rows); continue;
+    }
+    const para = [];
+    for (; i < lines.length && lines[i].trim() && !(para.length && blockStart(lines[i])); i++) para.push(lines[i].trim());
+    out += `<p>${inline(para.join(' '))}</p>`;
+  }
+  return out;
+}
+
+// ---- loop
+
+async function tick() {
+  try {
+    jobs = await loadJobs();
+    $('live').className = 'live'; $('live').lastElementChild.textContent = 'live';
+    renderBoard();
+    if (firstLoad) {
+      const [id, file] = location.hash.slice(1).split('/').map(decodeURIComponent);
+      firstLoad = false;
+      if (id && jobs.some(j => j.id === id)) openDrawer(id, file, true);
+    } else if (view.id) await refreshDrawer();
+  } catch (err) {
+    $('live').className = 'live off'; $('live').lastElementChild.textContent = 'offline';
+    if (firstLoad && !jobs.length) $('main').innerHTML = `<div class="empty"><p>Can't read <code>jobs/</code>.</p>
+      <p>Serve this folder with <code>factory dashboard</code> (<code>/factory:dashboard</code> in Claude Code).</p></div>`;
+  }
+  setTimeout(tick, document.hidden ? POLL_MS * 5 : POLL_MS);
+}
+tick();
+</script>
+</body>
+</html>

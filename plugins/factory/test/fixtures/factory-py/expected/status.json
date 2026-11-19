@@ -1,0 +1,501 @@
+[
+  {
+    "id": "001-intake-only-job",
+    "title": "Intake only job",
+    "stage": "intake",
+    "status": "active",
+    "needs_human": null,
+    "activity": "created",
+    "spec": null,
+    "spec_sha": null,
+    "branch": null,
+    "base": null,
+    "base_branch": null,
+    "worktree": null,
+    "proof_attempts": 0,
+    "rounds": [],
+    "followups": [],
+    "created": "2026-11-19T06:09:32Z",
+    "history": [
+      {
+        "at": "2026-11-19T06:09:32Z",
+        "stage": "intake",
+        "event": "created"
+      }
+    ],
+    "updated": "2026-11-19T06:09:32Z"
+  },
+  {
+    "id": "002-spec-pending-job",
+    "title": "Spec pending job",
+    "stage": "intake",
+    "status": "needs-human",
+    "needs_human": "review task.md and approve the spec",
+    "activity": "needs human: review task.md and approve the spec",
+    "spec": "pending",
+    "spec_sha": null,
+    "branch": null,
+    "base": null,
+    "base_branch": null,
+    "worktree": null,
+    "proof_attempts": 0,
+    "rounds": [],
+    "followups": [],
+    "created": "2026-11-19T06:09:32Z",
+    "history": [
+      {
+        "at": "2026-11-19T06:09:32Z",
+        "stage": "intake",
+        "event": "created"
+      },
+      {
+        "at": "2026-11-19T06:09:32Z",
+        "stage": "intake",
+        "event": "needs human: review task.md and approve the spec"
+      }
+    ],
+    "updated": "2026-11-19T06:09:32Z"
+  },
+  {
+    "id": "003-build-with-worktree",
+    "title": "Build with worktree",
+    "stage": "build",
+    "status": "active",
+    "needs_human": null,
+    "activity": "builder model: opus - test",
+    "spec": null,
+    "spec_sha": null,
+    "branch": "factory/003-build-with-worktree",
+    "base": "66b7769b4e7a89d149367ee75b48e8650f4ac28c",
+    "base_branch": "main",
+    "worktree": "/tmp/tmp.NSYipNDM9q/repo/factory/worktrees/003-build-with-worktree",
+    "proof_attempts": 0,
+    "rounds": [],
+    "followups": [
+      {
+        "n": 1,
+        "text": "\u00dcn\u00efcode follow-up with \"quotes\"",
+        "by": "builder",
+        "stage": "build",
+        "at": "2026-11-19T06:09:32Z",
+        "status": "open",
+        "resolution": null,
+        "resolved_at": null
+      }
+    ],
+    "created": "2026-11-19T06:09:32Z",
+    "history": [
+      {
+        "at": "2026-11-19T06:09:32Z",
+        "stage": "intake",
+        "event": "created"
+      },
+      {
+        "at": "2026-11-19T06:09:32Z",
+        "stage": "build",
+        "event": "building"
+      },
+      {
+        "at": "2026-11-19T06:09:32Z",
+        "stage": "build",
+        "event": "builder model: opus - test"
+      },
+      {
+        "at": "2026-11-19T06:09:32Z",
+        "stage": "build",
+        "event": "follow-up 1 added by builder"
+      }
+    ],
+    "updated": "2026-11-19T06:09:32Z"
+  },
+  {
+    "id": "004-shipped-after-two-rounds",
+    "title": "Shipped after two rounds",
+    "stage": "ship",
+    "status": "needs-human",
+    "needs_human": "approved by every reviewer - awaiting your merge",
+    "activity": "needs human: approved by every reviewer - awaiting your merge",
+    "spec": null,
+    "spec_sha": null,
+    "branch": "factory/004-shipped-after-two-rounds",
+    "base": "66b7769b4e7a89d149367ee75b48e8650f4ac28c",
+    "base_branch": "main",
+    "worktree": "/tmp/tmp.NSYipNDM9q/repo/factory/worktrees/004-shipped-after-two-rounds",
+    "proof_attempts": 1,
+    "rounds": [
+      {
+        "n": 1,
+        "reviewers": {
+          "security": {
+            "verdict": "approve",
+            "at": "2026-11-19T06:09:32Z"
+          },
+          "standards": {
+            "verdict": "changes",
+            "at": "2026-11-19T06:09:32Z"
+          },
+          "behavior": {
+            "verdict": "approve",
+            "at": "2026-11-19T06:09:33Z"
+          }
+        }
+      },
+      {
+        "n": 2,
+        "reviewers": {
+          "security": {
+            "verdict": "approve",
+            "at": "2026-11-19T06:09:33Z"
+          },
+          "standards": {
+            "verdict": "approve",
+            "at": "2026-11-19T06:09:33Z"
+          },
+          "behavior": {
+            "verdict": "approve",
+            "at": "2026-11-19T06:09:33Z"
+          }
+        }
+      }
+    ],
+    "followups": [
+      {
+        "n": 1,
+        "text": "Open one",
+        "by": "security",
+        "stage": "ship",
+        "at": "2026-11-19T06:09:33Z",
+        "status": "open",
+        "resolution": null,
+        "resolved_at": null
+      },
+      {
+        "n": 2,
+        "text": "Done one",
+        "by": "standards",
+        "stage": "ship",
+        "at": "2026-11-19T06:09:33Z",
+        "status": "done",
+        "resolution": "job 009",
+        "resolved_at": "2026-11-19T06:09:33Z"
+      },
+      {
+        "n": 3,
+        "text": "Dropped one",
+        "by": "supervisor",
+        "stage": "ship",
+        "at": "2026-11-19T06:09:33Z",
+        "status": "dropped",
+        "resolution": null,
+        "resolved_at": "2026-11-19T06:09:33Z"
+      }
+    ],
+    "created": "2026-11-19T06:09:32Z",
+    "history": [
+      {
+        "at": "2026-11-19T06:09:32Z",
+        "stage": "intake",
+        "event": "created"
+      },
+      {
+        "at": "2026-11-19T06:09:32Z",
+        "stage": "build",
+        "event": "building"
+      },
+      {
+        "at": "2026-11-19T06:09:32Z",
+        "stage": "proof",
+        "event": "awaiting independent proof"
+      },
+      {
+        "at": "2026-11-19T06:09:32Z",
+        "stage": "build",
+        "event": "proof failed (attempt 1)"
+      },
+      {
+        "at": "2026-11-19T06:09:32Z",
+        "stage": "proof",
+        "event": "awaiting independent proof"
+      },
+      {
+        "at": "2026-11-19T06:09:32Z",
+        "stage": "review",
+        "event": "proof passed"
+      },
+      {
+        "at": "2026-11-19T06:09:32Z",
+        "stage": "review",
+        "event": "review round 1 opened"
+      },
+      {
+        "at": "2026-11-19T06:09:32Z",
+        "stage": "review",
+        "event": "round 1: security -> approve"
+      },
+      {
+        "at": "2026-11-19T06:09:32Z",
+        "stage": "review",
+        "event": "round 1: standards -> changes"
+      },
+      {
+        "at": "2026-11-19T06:09:33Z",
+        "stage": "review",
+        "event": "round 1: behavior -> approve"
+      },
+      {
+        "at": "2026-11-19T06:09:33Z",
+        "stage": "build",
+        "event": "round 1: changes requested by standards"
+      },
+      {
+        "at": "2026-11-19T06:09:33Z",
+        "stage": "proof",
+        "event": "awaiting independent proof"
+      },
+      {
+        "at": "2026-11-19T06:09:33Z",
+        "stage": "review",
+        "event": "proof passed"
+      },
+      {
+        "at": "2026-11-19T06:09:33Z",
+        "stage": "review",
+        "event": "review round 2 opened"
+      },
+      {
+        "at": "2026-11-19T06:09:33Z",
+        "stage": "review",
+        "event": "round 2: security -> approve"
+      },
+      {
+        "at": "2026-11-19T06:09:33Z",
+        "stage": "review",
+        "event": "round 2: standards -> approve"
+      },
+      {
+        "at": "2026-11-19T06:09:33Z",
+        "stage": "review",
+        "event": "round 2: behavior -> approve"
+      },
+      {
+        "at": "2026-11-19T06:09:33Z",
+        "stage": "ship",
+        "event": "approved in round 2"
+      },
+      {
+        "at": "2026-11-19T06:09:33Z",
+        "stage": "ship",
+        "event": "needs human: approved by every reviewer - awaiting your merge"
+      },
+      {
+        "at": "2026-11-19T06:09:33Z",
+        "stage": "ship",
+        "event": "follow-up 1 added by security"
+      },
+      {
+        "at": "2026-11-19T06:09:33Z",
+        "stage": "ship",
+        "event": "follow-up 2 added by standards"
+      },
+      {
+        "at": "2026-11-19T06:09:33Z",
+        "stage": "ship",
+        "event": "follow-up 2 done"
+      },
+      {
+        "at": "2026-11-19T06:09:33Z",
+        "stage": "ship",
+        "event": "follow-up 3 added by supervisor"
+      },
+      {
+        "at": "2026-11-19T06:09:33Z",
+        "stage": "ship",
+        "event": "follow-up 3 dropped"
+      }
+    ],
+    "updated": "2026-11-19T06:09:33Z"
+  },
+  {
+    "id": "005-merged-job",
+    "title": "Merged job",
+    "stage": "done",
+    "status": "merged",
+    "needs_human": null,
+    "activity": "merged into main",
+    "spec": null,
+    "spec_sha": null,
+    "branch": "factory/005-merged-job",
+    "base": "66b7769b4e7a89d149367ee75b48e8650f4ac28c",
+    "base_branch": "main",
+    "worktree": null,
+    "proof_attempts": 0,
+    "rounds": [
+      {
+        "n": 1,
+        "reviewers": {
+          "solo": {
+            "verdict": "approve",
+            "at": "2026-11-19T06:09:33Z"
+          }
+        }
+      }
+    ],
+    "followups": [],
+    "created": "2026-11-19T06:09:33Z",
+    "history": [
+      {
+        "at": "2026-11-19T06:09:33Z",
+        "stage": "intake",
+        "event": "created"
+      },
+      {
+        "at": "2026-11-19T06:09:33Z",
+        "stage": "build",
+        "event": "building"
+      },
+      {
+        "at": "2026-11-19T06:09:33Z",
+        "stage": "proof",
+        "event": "awaiting independent proof"
+      },
+      {
+        "at": "2026-11-19T06:09:33Z",
+        "stage": "review",
+        "event": "proof passed"
+      },
+      {
+        "at": "2026-11-19T06:09:33Z",
+        "stage": "review",
+        "event": "review round 1 opened"
+      },
+      {
+        "at": "2026-11-19T06:09:33Z",
+        "stage": "review",
+        "event": "round 1: solo -> approve"
+      },
+      {
+        "at": "2026-11-19T06:09:33Z",
+        "stage": "ship",
+        "event": "approved in round 1"
+      },
+      {
+        "at": "2026-11-19T06:09:33Z",
+        "stage": "ship",
+        "event": "needs human: approved by every reviewer - awaiting your merge"
+      },
+      {
+        "at": "2026-11-19T06:09:33Z",
+        "stage": "done",
+        "event": "merged into main"
+      }
+    ],
+    "updated": "2026-11-19T06:09:33Z"
+  },
+  {
+    "id": "006-closed-job",
+    "title": "Closed job",
+    "stage": "done",
+    "status": "closed",
+    "needs_human": null,
+    "activity": "closed without merging: not needed",
+    "spec": null,
+    "spec_sha": null,
+    "branch": "factory/006-closed-job",
+    "base": "b6eb05b76f9b0b842fbb78dddb0f703073552747",
+    "base_branch": "main",
+    "worktree": null,
+    "proof_attempts": 0,
+    "rounds": [],
+    "followups": [],
+    "created": "2026-11-19T06:09:33Z",
+    "history": [
+      {
+        "at": "2026-11-19T06:09:33Z",
+        "stage": "intake",
+        "event": "created"
+      },
+      {
+        "at": "2026-11-19T06:09:33Z",
+        "stage": "build",
+        "event": "building"
+      },
+      {
+        "at": "2026-11-19T06:09:33Z",
+        "stage": "build",
+        "event": "needs human: which database?"
+      },
+      {
+        "at": "2026-11-19T06:09:33Z",
+        "stage": "done",
+        "event": "closed without merging: not needed"
+      }
+    ],
+    "updated": "2026-11-19T06:09:33Z"
+  },
+  {
+    "id": "007-round-limit-job",
+    "title": "Round limit job",
+    "stage": "review",
+    "status": "needs-human",
+    "needs_human": "changes still requested after 1 round (solo)",
+    "activity": "needs human: changes still requested after 1 round (solo)",
+    "spec": null,
+    "spec_sha": null,
+    "branch": "factory/007-round-limit-job",
+    "base": "b6eb05b76f9b0b842fbb78dddb0f703073552747",
+    "base_branch": "main",
+    "worktree": "/tmp/tmp.NSYipNDM9q/repo/factory/worktrees/007-round-limit-job",
+    "proof_attempts": 0,
+    "rounds": [
+      {
+        "n": 1,
+        "reviewers": {
+          "solo": {
+            "verdict": "changes",
+            "at": "2026-11-19T06:09:34Z"
+          }
+        }
+      }
+    ],
+    "followups": [],
+    "created": "2026-11-19T06:09:34Z",
+    "history": [
+      {
+        "at": "2026-11-19T06:09:34Z",
+        "stage": "intake",
+        "event": "created"
+      },
+      {
+        "at": "2026-11-19T06:09:34Z",
+        "stage": "build",
+        "event": "building"
+      },
+      {
+        "at": "2026-11-19T06:09:34Z",
+        "stage": "proof",
+        "event": "awaiting independent proof"
+      },
+      {
+        "at": "2026-11-19T06:09:34Z",
+        "stage": "review",
+        "event": "proof passed"
+      },
+      {
+        "at": "2026-11-19T06:09:34Z",
+        "stage": "review",
+        "event": "review round 1 opened"
+      },
+      {
+        "at": "2026-11-19T06:09:34Z",
+        "stage": "review",
+        "event": "round 1: solo -> changes"
+      },
+      {
+        "at": "2026-11-19T06:09:34Z",
+        "stage": "review",
+        "event": "needs human: changes still requested after 1 round (solo)"
+      }
+    ],
+    "updated": "2026-11-19T06:09:34Z"
+  }
+]

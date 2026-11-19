@@ -1,0 +1,7 @@
+001-intake-only-job                            intake  active      
+  title:    Intake only job
+  job dir:  <ROOT>/jobs/001-intake-only-job
+  worktree: None
+  branch:   None  base: None
+  activity: created
+  follow-ups: 0 open (factory followup list 001-intake-only-job)

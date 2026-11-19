@@ -1,0 +1,26 @@
+{
+  "id": "001-intake-only-job",
+  "title": "Intake only job",
+  "stage": "intake",
+  "status": "active",
+  "needs_human": null,
+  "activity": "created",
+  "spec": null,
+  "spec_sha": null,
+  "branch": null,
+  "base": null,
+  "base_branch": null,
+  "worktree": null,
+  "proof_attempts": 0,
+  "rounds": [],
+  "followups": [],
+  "created": "2026-11-19T06:09:32Z",
+  "history": [
+    {
+      "at": "2026-11-19T06:09:32Z",
+      "stage": "intake",
+      "event": "created"
+    }
+  ],
+  "updated": "2026-11-19T06:09:32Z"
+}

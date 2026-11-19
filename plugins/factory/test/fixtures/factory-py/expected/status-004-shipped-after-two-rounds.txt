@@ -1,0 +1,7 @@
+004-shipped-after-two-rounds                   ship    needs-human r1[+x+] r2[+++]  !! approved by every reviewer - awaiting your merge
+  title:    Shipped after two rounds
+  job dir:  <ROOT>/jobs/004-shipped-after-two-rounds
+  worktree: /tmp/tmp.NSYipNDM9q/repo/factory/worktrees/004-shipped-after-two-rounds
+  branch:   factory/004-shipped-after-two-rounds  base: 66b7769b4e7a89d149367ee75b48e8650f4ac28c
+  activity: needs human: approved by every reviewer - awaiting your merge
+  follow-ups: 1 open (factory followup list 004-shipped-after-two-rounds)

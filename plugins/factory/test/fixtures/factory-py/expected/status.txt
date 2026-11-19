@@ -1,0 +1,7 @@
+001-intake-only-job                            intake  active      
+002-spec-pending-job                           intake  needs-human   !! review task.md and approve the spec
+003-build-with-worktree                        build   active      
+004-shipped-after-two-rounds                   ship    needs-human r1[+x+] r2[+++]  !! approved by every reviewer - awaiting your merge
+005-merged-job                                 done    merged      r1[+]
+006-closed-job                                 done    closed      
+007-round-limit-job                            review  needs-human r1[x]  !! changes still requested after 1 round (solo)

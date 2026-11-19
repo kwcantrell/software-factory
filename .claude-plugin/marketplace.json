@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "factory",
-      "source": "./",
+      "source": "./plugins/factory",
       "description": "Software Factory: a multi-agent line with isolated builds, independent proof, three reviewers and a human merge gate",
       "license": "MIT"
     }

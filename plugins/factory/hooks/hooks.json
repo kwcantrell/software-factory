@@ -1,0 +1,18 @@
+{
+  "description": "Software Factory human gates: a Bash call that runs `factory merge`, `factory approve` or `factory rework` becomes a permission prompt.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/src/human-gate.ts"],
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
