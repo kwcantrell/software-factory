@@ -8,8 +8,8 @@
 // retries, and a change to the same job on both sides is refused, never merged. This module is the
 // git side of that; factory.ts decides what a command changes and who may change it.
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve as resolvePath } from 'node:path';
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join, resolve as resolvePath } from 'node:path';
 import { now, Refused } from './errors.ts';
 
 export interface RemoteConfig {
@@ -161,6 +161,27 @@ export function attached(root: string): boolean {
   return existsSync(join(stateDir(root), '.git'));
 }
 
+/**
+ * Settings every state checkout carries: `factory.state` marks it (so a command run from inside it
+ * finds the project checkout, see factory.ts mainCheckout), and `core.symlinks=false` means a
+ * symbolic link on the branch is never materialised as one (the tree check refuses it anyway).
+ */
+const STATE_CONFIG: [string, string][] = [
+  ['factory.state', 'true'],
+  ['core.symlinks', 'false'],
+];
+
+function markState(dir: string): void {
+  for (const [key, value] of STATE_CONFIG) g(['config', key, value], dir);
+}
+
+/** Is `dir` (a repository's top level) a remote factory's state checkout, i.e. a factory dir's jobs/? */
+export function isStateCheckout(dir: string): boolean {
+  if (basename(dir) !== 'jobs') return false;
+  const get = (key: string): string => sh(['config', '--local', '--get', key], dir).stdout.trim();
+  return get('factory.state') === 'true' || get('factory.lastsync') !== '';
+}
+
 const tracking = (remote: RemoteConfig): string => `refs/remotes/origin/${remote.branch}`;
 
 function commit(dir: string, me: Person, message: string): void {
@@ -213,12 +234,35 @@ function emptyDir(dir: string): void {
   mkdirSync(dir, { recursive: true });
 }
 
-/** Refuse a branch that holds anything but job directories and the state README (say, the code's `main`). */
+/** A job directory's name on the state branch: `NNN-slug`, as `factory new` makes it. */
+export const JOB_DIR = /^\d+-[a-z0-9-]+$/;
+
+/**
+ * Refuse a branch that holds anything but job directories and the state README (say, the code's
+ * `main`), and any tree holding a symbolic link or a submodule anywhere: the factory never writes
+ * one, and a link checked out into jobs/ would let whoever can push to the branch make this
+ * machine's commands write through it, or publish the files it points at.
+ */
 function checkStateTree(dir: string, remote: RemoteConfig, ref: string): void {
-  const names = g(['ls-tree', '--name-only', '-z', ref], dir).split('\0').filter(Boolean);
+  const entries = g(['ls-tree', '-r', '-z', '--full-tree', ref], dir).split('\0').filter(Boolean);
+  const links: string[] = [];
+  const names = new Set<string>();
+  for (const entry of entries) {
+    const tab = entry.indexOf('\t');
+    const mode = entry.slice(0, entry.indexOf(' '));
+    const path = entry.slice(tab + 1);
+    if (mode === '120000' || mode === '160000') links.push(path);
+    names.add(path.split('/')[0] as string);
+  }
+  if (links.length > 0) {
+    throw new Refused(
+      `branch '${remote.branch}' of ${remote.url} holds a symbolic link or submodule (${links.slice(0, 5).join(', ')}), ` +
+        'which the factory never writes; refusing to check it out. Remove it from the branch (git rm), then retry',
+    );
+  }
   const ours = (n: string): boolean =>
-    n === 'README.md' ? sh(['show', `${ref}:README.md`], dir).stdout.startsWith(STATE_README_TITLE) : /^\d+-/.test(n);
-  const bad = names.filter((n) => !ours(n));
+    n === 'README.md' ? sh(['show', `${ref}:README.md`], dir).stdout.startsWith(STATE_README_TITLE) : JOB_DIR.test(n);
+  const bad = [...names].filter((n) => !ours(n));
   if (bad.length > 0) {
     throw new Refused(
       `branch '${remote.branch}' of ${remote.url} does not hold factory state (it has ${bad.slice(0, 5).join(', ')}); ` +
@@ -248,8 +292,12 @@ function push(dir: string, remote: RemoteConfig): 'ok' | 'race' | Proc {
     return 'ok';
   }
   // "! [rejected] ... (fetch first)" or "(non-fast-forward)", or "! [remote rejected] ... (cannot
-  // lock ref ...)" when another push landed between our ref advertisement and our update.
-  return /\[(remote )?rejected\]/.test(p.stderr) ? 'race' : p;
+  // lock ref ...)" when another push landed between our ref advertisement and our update. Any other
+  // rejection (a pre-receive hook, a protected branch) is the server's policy, not a race.
+  const race =
+    /\[rejected\].*\((fetch first|non-fast-forward)\)/.test(p.stderr) ||
+    /\[remote rejected\].*\((cannot lock ref|failed to update ref|incorrect old value)/.test(p.stderr);
+  return race ? 'race' : p;
 }
 
 /**
@@ -272,6 +320,7 @@ export function attach(root: string, remote: RemoteConfig, me: () => Person): 'a
     if (sh(['config', '--get', 'remote.origin.url'], dir).stdout.trim() !== remote.url) {
       g(['remote', 'set-url', 'origin', remote.url], dir);
     }
+    markState(dir);
     return 'attached';
   }
   if (readdirSync(dir).length > 0) {
@@ -281,7 +330,10 @@ export function attach(root: string, remote: RemoteConfig, me: () => Person): 'a
     );
   }
   if (branchExists(root, remote)) {
-    const p = sh(['clone', '-q', '--single-branch', '--branch', remote.branch, '--', remote.url, dir], root);
+    const p = sh(
+      ['clone', '-q', ...STATE_CONFIG.flatMap(([k, v]) => ['-c', `${k}=${v}`]), '--single-branch', '--branch', remote.branch, '--', remote.url, dir],
+      root,
+    );
     if (p.status !== 0) {
       emptyDir(dir);
       throw unreachable(remote, p, 'clone');
@@ -298,6 +350,7 @@ export function attach(root: string, remote: RemoteConfig, me: () => Person): 'a
   const person = me();
   try {
     g(['init', '-q', '-b', remote.branch], dir);
+    markState(dir);
     g(['remote', 'add', '-t', remote.branch, 'origin', remote.url], dir);
     writeFileSync(join(dir, 'README.md'), STATE_README);
     g(['add', 'README.md'], dir);
@@ -318,6 +371,24 @@ export function attach(root: string, remote: RemoteConfig, me: () => Person): 'a
   return 'created';
 }
 
+function jobDirs(dir: string, ref: string): string[] {
+  return g(['ls-tree', '--name-only', '-z', ref], dir).split('\0').filter((n) => JOB_DIR.test(n));
+}
+
+/** The first of `mine` whose number another job of `theirs` already has. */
+function numberClash(mine: string[], theirs: string[]): { mine: string; message: string } | null {
+  for (const id of mine) {
+    const other = theirs.find((t) => Number.parseInt(t, 10) === Number.parseInt(id, 10) && t !== id);
+    if (other) {
+      return {
+        mine: id,
+        message: `job number ${Number.parseInt(id, 10)} is ${id} here but ${other} on the remote; refusing to publish two jobs with one number`,
+      };
+    }
+  }
+  return null;
+}
+
 /**
  * Bring the remote's commits into the checkout. Fast-forwards when only the remote moved; keeps
  * local unpushed commits; when both moved, replays the local commits on top unless both touched the
@@ -329,6 +400,7 @@ function integrate(dir: string, remote: RemoteConfig): void {
   const head = rev(dir, 'HEAD');
   const up = rev(dir, theirs);
   if (head === up || isAncestor(dir, up, head)) return;
+  checkStateTree(dir, remote, theirs);
   const local = uncommitted(dir);
   if (isAncestor(dir, head, up)) {
     const p = sh(['merge', '--ff-only', '-q', theirs], dir);
@@ -355,6 +427,11 @@ function integrate(dir: string, remote: RemoteConfig): void {
       clash,
     );
   }
+  // A job created here whose number the remote now gives another job: replaying it would leave two
+  // jobs with one number (`factory 7` ambiguous). `factory new` allocates afresh instead.
+  const before = new Set(jobDirs(dir, base));
+  const clashed = numberClash(jobDirs(dir, head).filter((n) => !before.has(n)), jobDirs(dir, up));
+  if (clashed) throw new Conflict(clashed.message, [clashed.mine]);
   const dirty = uniq(local.filter((f) => theirPaths.includes(f)));
   if (dirty.length > 0) {
     throw new Conflict(
@@ -406,8 +483,15 @@ export function snapshot(dir: string): Snapshot {
   const walk = (rel: string): void => {
     for (const name of readdirSync(join(dir, rel))) {
       const r = rel ? `${rel}/${name}` : name;
-      if (statSync(join(dir, r)).isDirectory()) walk(r);
-      else files.set(r, readFileSync(join(dir, r)));
+      const st = lstatSync(join(dir, r));
+      if (st.isDirectory()) walk(r);
+      else if (st.isFile()) files.set(r, readFileSync(join(dir, r)));
+      else {
+        // Never follow a link: reading through it could publish the file it points at.
+        throw new Refused(
+          `${join(dir, r)} is not a regular file (a symbolic link?); the factory never writes one and refuses to read or publish it - remove it, then retry`,
+        );
+      }
     }
   };
   walk('');
@@ -572,6 +656,11 @@ export function remotePush(root: string, remote: RemoteConfig, me: Person): stri
   if (attached(root)) {
     fetch(dir, remote);
     integrate(dir, remote);
+    // Jobs made here while the remote was off: one may carry a number the remote has since given away.
+    const tracked = jobDirs(dir, 'HEAD');
+    const fresh = uniq(uncommitted(dir).map(jobOf)).filter((n) => JOB_DIR.test(n) && !tracked.includes(n));
+    const clashed = numberClash(fresh, tracked);
+    if (clashed) throw new Refused(`${clashed.message}; nothing was pushed - close and recreate ${clashed.mine} in remote mode`);
     const pre = rev(dir, 'HEAD');
     g(['add', '-A'], dir);
     if (sh(['diff', '--cached', '--quiet'], dir).status !== 0) commit(dir, me, 'factory: remote push');
@@ -587,6 +676,7 @@ export function remotePush(root: string, remote: RemoteConfig, me: Person): stri
   const exists = branchExists(root, remote);
   try {
     g(['init', '-q', '-b', remote.branch], dir);
+    markState(dir);
     g(['remote', 'add', '-t', remote.branch, 'origin', remote.url], dir);
     if (exists) {
       fetch(dir, remote);

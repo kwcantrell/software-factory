@@ -18,6 +18,7 @@ import {
   readdirSync,
   realpathSync,
   renameSync,
+  rmSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -27,7 +28,10 @@ import { Escalated, now, Refused } from './errors.ts';
 import { dumps, Float, formatG, formatPercent, roundHalfEven, str } from './pyfmt.ts';
 import {
   attach,
+  attached,
   identity,
+  isStateCheckout,
+  JOB_DIR,
   personText,
   publish,
   pull,
@@ -146,13 +150,27 @@ export function git(args: string[], cwd?: string | null, check = true): string {
   return p.stdout.trim();
 }
 
-/** The repo's primary working tree, even when called from a job worktree. */
+/**
+ * The repo's primary working tree, even when called from a job worktree, or from inside a remote
+ * factory's state checkout (`<factory dir>/jobs`, a repository of its own), where it is the checkout
+ * that holds that factory dir.
+ */
 export function mainCheckout(): string {
-  const p = run('git', ['worktree', 'list', '--porcelain']);
-  if (p.status !== 0 || !p.stdout.startsWith('worktree ')) {
-    throw new Refused('not inside a git repository (the factory isolates builds in git worktrees)');
+  const first = (cwd?: string): string | null => {
+    const p = run('git', ['worktree', 'list', '--porcelain'], cwd);
+    if (p.status !== 0 || !p.stdout.startsWith('worktree ')) return null;
+    return (p.stdout.split(/\r?\n/)[0] ?? '').slice('worktree '.length);
+  };
+  const main = first();
+  if (main === null) throw new Refused('not inside a git repository (the factory isolates builds in git worktrees)');
+  if (!isStateCheckout(main)) return main;
+  const outer = first(dirname(dirname(main)));
+  if (outer === null || isStateCheckout(outer)) {
+    throw new Refused(
+      `${process.cwd()} is inside a remote factory's state checkout (${main}), not a project checkout; run factory from the project's checkout`,
+    );
   }
-  return (p.stdout.split(/\r?\n/)[0] ?? '').slice('worktree '.length);
+  return outer;
 }
 
 /** An absolute path with symlinks resolved as far as the path exists (like Path.resolve()). */
@@ -393,14 +411,36 @@ export function resolve(root: string, ref: string): string {
 }
 
 export function load(root: string, jobId: string): Job {
-  return JSON.parse(readFileSync(join(root, 'jobs', jobId, 'job.json'), 'utf8')) as Job;
+  const job = JSON.parse(readFileSync(join(root, 'jobs', jobId, 'job.json'), 'utf8')) as Job;
+  if (attached(root)) trustRemoteJob(root, jobId, job);
+  return job;
+}
+
+/**
+ * A job from a state checkout was written by whoever can push to the state branch, so the fields
+ * this CLI uses as paths or git arguments must be the values it writes itself: the id is the job's
+ * directory name, the branch is `factory/<id>`, the base a commit hash. The worktree is always this
+ * machine's own `<factory dir>/worktrees/<id>` (another person's path means nothing here).
+ */
+function trustRemoteJob(root: string, jobId: string, job: Job): void {
+  const where = join(root, 'jobs', jobId, 'job.json');
+  const bad = (field: string, value: unknown, want: string): Refused =>
+    new Refused(`${where} has ${field} ${JSON.stringify(value)}, but the factory only ever writes ${want}; refusing to use it - fix it on the state branch`);
+  if (job.id !== jobId || !JOB_DIR.test(jobId)) throw bad('id', job.id, JSON.stringify(jobId));
+  if (job.branch !== null && job.branch !== `factory/${jobId}`) throw bad('branch', job.branch, `null or "factory/${jobId}"`);
+  if (job.base !== null && !(typeof job.base === 'string' && /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(job.base))) {
+    throw bad('base', job.base, 'null or a commit hash');
+  }
+  if (job.worktree !== null) job.worktree = join(root, 'worktrees', jobId);
 }
 
 export function save(root: string, job: Job): void {
   job.updated = now();
   const path = join(root, 'jobs', job.id, 'job.json');
   const tmp = `${path}.tmp`;
-  writeFileSync(tmp, `${dumps(job)}\n`);
+  // Never write through whatever already sits at the temp path (a link, say): replace it.
+  rmSync(tmp, { force: true });
+  writeFileSync(tmp, `${dumps(job)}\n`, { flag: 'wx' });
   renameSync(tmp, path); // atomic: the dashboard never reads a half-written file
 }
 
@@ -428,6 +468,7 @@ export function editing<T>(root: string, a: Args, command: string, fn: (job: Job
   const ref = a.job as string;
   const remote = remoteOf(root, a.cfg);
   return locked(root, () => {
+    undoSteps = [];
     if (remote === null) {
       const job = load(root, resolve(root, ref));
       let result: T;
@@ -451,14 +492,19 @@ export function editing<T>(root: string, a: Args, command: string, fn: (job: Job
           `A human can take it over with \`factory claim ${id} --take-over\``,
       );
     }
-    undoSteps = [];
     let result!: T;
     let escalated: Escalated | null = null;
     try {
       result = fn(job);
     } catch (error) {
       if (!(error instanceof Escalated)) {
-        for (const step of undoSteps.reverse()) step();
+        for (const step of undoSteps.reverse()) {
+          try {
+            step();
+          } catch {
+            // best effort: the refusal below is what the caller needs to see
+          }
+        }
         throw error;
       }
       escalated = error;
@@ -627,15 +673,19 @@ export const cmdNew: Command = (root, a, io) => {
     // and allocates the next number, so ids never collide and neither job is lost.
     const me = identity();
     pull(root, remote, () => me);
-    for (let attempt = 1; ; attempt++) {
+    // Never replay a `new` onto the remote's commits: its number may be taken there by now.
+    for (let attempt = 1; attempt <= PUSH_ATTEMPTS; attempt++) {
       const id = create();
       try {
-        publish(root, remote, id, 'new', me, { snap: null, undo: [], redo: attempt < PUSH_ATTEMPTS });
+        publish(root, remote, id, 'new', me, { snap: null, undo: [], redo: true });
         return id;
       } catch (error) {
         if (!(error instanceof RaceLost)) throw error;
       }
     }
+    throw new Refused(
+      `lost the race to push ${remote.branch} ${PUSH_ATTEMPTS} times while numbering the job; nothing was created - retry the command`,
+    );
   });
   io.stdout(
     `${jobId}\njob dir: ${join(root, 'jobs', jobId)}\nnext: write task.md there, then \`factory start ${jobId}\`\n`,

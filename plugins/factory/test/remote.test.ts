@@ -3,7 +3,7 @@
 // shared code repo act as two people (Ann and Bob), each with their own factory dir.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -123,19 +123,24 @@ class Person {
     assert.equal(this.git(['rev-parse', 'HEAD'], this.jobs), w.remote(['rev-parse', BRANCH]));
   }
   /**
-   * Make this person's next push lose a race: a one-shot pre-push hook in their state checkout runs
-   * `factory <args>` as `other` first, so the other push lands between this one's pull and push.
+   * Make this person's next `times` pushes lose a race: a pre-push hook in their state checkout runs
+   * `factory <args>` as `other` first (each of the first `times` pushes), so the other push lands
+   * between this one's pull and push.
    */
-  raceWith(other: Person, args: string[]): void {
+  raceWith(other: Person, args: string[], times = 1): void {
     const marker = join(this.fdir, 'raced');
+    const count = join(this.fdir, 'raced-count');
+    rmSync(marker, { force: true });
+    writeFileSync(count, '0');
     const hook = join(this.jobs, '.git', 'hooks', 'pre-push');
     writeFileSync(
       hook,
       `#!${process.execPath}\n` +
-        `const { existsSync, writeFileSync } = require('node:fs');\n` +
+        `const { readFileSync, writeFileSync } = require('node:fs');\n` +
         `const { spawnSync } = require('node:child_process');\n` +
-        `if (!existsSync(${JSON.stringify(marker)})) {\n` +
-        `  writeFileSync(${JSON.stringify(marker)}, '');\n` +
+        `const n = Number(readFileSync(${JSON.stringify(count)}, 'utf8'));\n` +
+        `if (n < ${times}) {\n` +
+        `  writeFileSync(${JSON.stringify(count)}, String(n + 1));\n` +
         `  const p = spawnSync(${JSON.stringify(process.execPath)}, ${JSON.stringify([CLI, ...args])}, ` +
         `{ cwd: ${JSON.stringify(other.repo)}, env: ${JSON.stringify(other.env)}, encoding: 'utf8' });\n` +
         `  writeFileSync(${JSON.stringify(marker)}, String(p.status) + '\\n' + p.stdout + p.stderr);\n` +
@@ -464,6 +469,30 @@ test('two clones racing several new jobs in parallel lose none and reuse no numb
   for (const id of onRemote) assert.match(id, /^\d{3}-(ann|bob)-\d$/);
 }));
 
+test('a new that keeps losing the race never replays its number: it renumbers, then refuses after PUSH_ATTEMPTS', withWorld((w) => {
+  const ann = new Person(w, 'Ann');
+  const bob = new Person(w, 'Bob');
+  ann.ok(['init']);
+  bob.ok(['init']);
+  // Ann lands a job before each of Bob's first 4 pushes: Bob's 5th allocation (005) wins.
+  bob.raceWith(ann, ['new', 'ann job'], 4);
+  assert.equal(bob.newJob('bob job'), '005-bob-job');
+  assert.deepEqual(w.jobsOnRemote(), ['001-ann-job', '002-ann-job', '003-ann-job', '004-ann-job', '005-bob-job']);
+  bob.assertInSync(w);
+  // Ann lands a job before each of Bob's 5 pushes: Bob refuses instead of replaying 010 onto Ann's.
+  bob.raceWith(ann, ['new', 'ann job'], 5);
+  const p = bob.refused(['new', 'bob two'], /lost the race to push factory-state 5 times while numbering the job; nothing was created - retry/);
+  assert.equal(p.stdout, '');
+  const onRemote = w.jobsOnRemote();
+  const numbers = onRemote.map((id) => Number.parseInt(id, 10));
+  assert.deepEqual(numbers, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 'every number is used exactly once');
+  assert.equal(onRemote.filter((id) => id.endsWith('bob-two')).length, 0);
+  bob.assertInSync(w);
+  assert.deepEqual(readdirSync(bob.jobs).filter((n) => /^\d+-/.test(n)), onRemote);
+  // And the retry the refusal asks for works.
+  assert.equal(bob.newJob('bob two'), '011-bob-two');
+}));
+
 // ---------------------------------------------------------------- 5. claims
 
 test('start records the owner; others are refused except the human gates', withWorld((w) => {
@@ -613,6 +642,36 @@ test('removing remote falls back to local mode with the last-pulled jobs; remote
 
 // ---------------------------------------------------------------- 7. locking
 
+test('remote push refuses a job made locally whose number the remote has given another job meanwhile', withWorld((w) => {
+  const ann = new Person(w, 'Ann');
+  const bob = new Person(w, 'Bob');
+  ann.ok(['init']);
+  bob.ok(['init']);
+  ann.newJob('First');
+  ann.config({});
+  const local = ann.newJob('Made locally');
+  bob.ok(['status']);
+  const theirs = bob.newJob('Made remotely');
+  assert.equal(Number.parseInt(local, 10), Number.parseInt(theirs, 10));
+  ann.config({ remote: { url: w.state, branch: BRANCH } });
+  ann.refused(['remote', 'push'], /job number 2 is 002-made-locally here but 002-made-remotely on the remote; refusing to publish two jobs with one number; nothing was pushed/);
+  assert.deepEqual(w.jobsOnRemote(), ['001-first', theirs]);
+}));
+
+test('a push the server declines (a hook, a protected branch) is reported as such, not retried as a race', withWorld((w) => {
+  const ann = new Person(w, 'Ann');
+  ann.ok(['init']);
+  const id = ann.newJob('Declined');
+  const hook = join(w.state, 'hooks', 'pre-receive');
+  writeFileSync(hook, `#!${process.execPath}\nconsole.error('branch is protected');\nprocess.exit(1);\n`);
+  chmodSync(hook, 0o755);
+  const head = ann.git(['rev-parse', 'HEAD'], ann.jobs);
+  const p = ann.refused(['note', id, 'x'], /push failed: .*branch is protected/);
+  assert.doesNotMatch(p.stderr, /lost the race/);
+  assert.equal(ann.git(['rev-parse', 'HEAD'], ann.jobs), head, 'rolled back');
+  assert.equal(ann.git(['status', '--porcelain'], ann.jobs), '');
+}));
+
 test('within one machine the lock still serializes commands on the shared checkout', withWorld(async (w) => {
   const ann = new Person(w, 'Ann');
   ann.ok(['init']);
@@ -631,4 +690,169 @@ test('within one machine the lock still serializes commands on the shared checko
 test('Repo helper stays local: no remote key means no git in jobs/', withRepo((r: Repo) => {
   r.newJob('Plain');
   assert.equal(existsSync(join(r.fdir, 'jobs', '.git')), false);
+}));
+
+// ---------------------------------------------------------------- running from inside the state checkout
+
+test('a command run from inside the state checkout finds the project checkout and its factory dir', withWorld((w) => {
+  const ann = new Person(w, 'Ann');
+  ann.ok(['init']);
+  const id = ann.newJob('Inside');
+  // No FACTORY_DIR: the factory dir is found from the cwd, as a person in a terminal would.
+  const env = { ...ann.env };
+  delete env.FACTORY_DIR;
+  const inJob = (args: string[]): Result => {
+    const p = spawnSync(process.execPath, [CLI, ...args], { cwd: join(ann.jobs, id), env, encoding: 'utf8' });
+    return { status: p.status, stdout: p.stdout, stderr: p.stderr };
+  };
+  let p = inJob(['status']);
+  assert.equal(p.status, 0, p.stderr);
+  assert.match(p.stdout, new RegExp(id));
+  p = inJob(['note', '1', 'from inside']);
+  assert.equal(p.status, 0, p.stderr);
+  assert.equal(w.remote(['log', '-1', '--format=%s', BRANCH]), `factory: note ${id}`);
+  p = inJob(['path', '1']);
+  assert.equal(p.status, 0, p.stderr);
+  assert.equal(p.stdout.trim(), join(ann.jobs, id));
+  ann.write(id, 'task.md', TASK);
+  p = inJob(['start', '1']);
+  assert.equal(p.status, 0, p.stderr);
+  assert.equal(ann.job(id).worktree, join(ann.fdir, 'worktrees', id));
+  assert.equal(ann.git(['rev-parse', '--abbrev-ref', 'HEAD'], join(ann.fdir, 'worktrees', id)), `factory/${id}`);
+  assert.equal(existsSync(join(ann.jobs, 'factory')), false, 'no stray factory dir inside the state checkout');
+  // Still so after `remote` is removed (jobs/.git stays).
+  ann.config({});
+  p = inJob(['status']);
+  assert.equal(p.status, 0, p.stderr);
+  assert.match(p.stdout, new RegExp(id));
+  assert.equal(existsSync(join(ann.jobs, 'factory')), false);
+}));
+
+// ---------------------------------------------------------------- what someone with push access can plant
+
+/** Someone with push access to the state branch, using plain git: a clone they commit to by hand. */
+function intruder(w: World): { dir: string; git: (args: string[]) => string; edit: (path: string, fn: (job: Record<string, any>) => void) => void } {
+  const dir = join(w.tmp, 'mallory');
+  const env = cleanEnv(w.tmp, {
+    GIT_AUTHOR_NAME: 'Mallory',
+    GIT_AUTHOR_EMAIL: 'mallory@example.invalid',
+    GIT_COMMITTER_NAME: 'Mallory',
+    GIT_COMMITTER_EMAIL: 'mallory@example.invalid',
+  });
+  git(['clone', '-q', '--branch', BRANCH, w.state, dir], w.tmp, env);
+  const run = (args: string[]): string => git(args, dir, env);
+  return {
+    dir,
+    git: run,
+    edit: (path, fn) => {
+      const job = JSON.parse(readFileSync(join(dir, path), 'utf8'));
+      fn(job);
+      writeFileSync(join(dir, path), `${JSON.stringify(job, null, 2)}\n`);
+    },
+  };
+}
+
+test('a symbolic link pushed to the state branch is refused: nothing is written through it or published from it', withWorld((w) => {
+  const ann = new Person(w, 'Ann');
+  ann.ok(['init']);
+  const id = ann.newJob('Linked');
+  const victim = join(w.tmp, 'victim.txt');
+  writeFileSync(victim, 'precious\n');
+  const secrets = join(w.tmp, 'secrets');
+  mkdirSync(secrets);
+  writeFileSync(join(secrets, 'id_rsa'), 'PRIVATE KEY\n');
+  const m = intruder(w);
+  symlinkSync(victim, join(m.dir, id, 'job.json.tmp'));
+  symlinkSync(secrets, join(m.dir, id, 'leak'));
+  m.git(['add', '-A']);
+  m.git(['commit', '-q', '-m', 'plant links']);
+  m.git(['push', '-q', 'origin', BRANCH]);
+  const before = ann.git(['rev-parse', 'HEAD'], ann.jobs);
+  for (const args of [['note', id, 'hello'], ['followup', 'add', id, '--by', 'human', 'x'], ['new', 'Other']]) {
+    ann.refused(args, /holds a symbolic link or submodule \(.*job\.json\.tmp.*\)/);
+  }
+  // Reads show the last-pulled state and say why.
+  const p = ann.factory(['status']);
+  assert.equal(p.status, 0, p.stderr);
+  assert.match(p.stderr, /symbolic link/);
+  assert.equal(readFileSync(victim, 'utf8'), 'precious\n', 'nothing was written through the link');
+  assert.equal(ann.git(['rev-parse', 'HEAD'], ann.jobs), before, 'the planted commit was never checked out');
+  assert.equal(existsSync(join(ann.jobs, id, 'leak')), false);
+  assert.equal(lstatSync(join(ann.jobs, id, 'job.json')).isFile(), true);
+  assert.equal(ann.git(['status', '--porcelain', '--untracked-files=all'], ann.jobs), '');
+  assert.equal(w.pathsInHistory().some((f) => f.startsWith(`${id}/leak/`)), false, 'no secret was published');
+  // Someone attaching afresh is refused too, and keeps an empty jobs/.
+  const bob = new Person(w, 'Bob');
+  const q = bob.refused(['init'], /holds a symbolic link or submodule/);
+  assert.equal(q.stdout, '');
+  assert.deepEqual(readdirSync(bob.jobs), []);
+}));
+
+test('a symbolic link in a local job dir is never read or published', withWorld((w) => {
+  const ann = new Person(w, 'Ann');
+  ann.ok(['init']);
+  const id = ann.newJob('Local link');
+  const secrets = join(w.tmp, 'secrets');
+  mkdirSync(secrets);
+  writeFileSync(join(secrets, 'id_rsa'), 'PRIVATE KEY\n');
+  symlinkSync(secrets, join(ann.jobs, id, 'leak'));
+  ann.refused(['note', id, 'x'], /leak is not a regular file \(a symbolic link\?\)/);
+  assert.equal(w.pathsInHistory().some((f) => f.startsWith(`${id}/leak`)), false);
+}));
+
+test('a stale job.json.tmp link is replaced, never written through (local mode too)', withRepo((r) => {
+  const id = r.newJob('Tmp link');
+  const victim = join(r.repo, 'victim.txt');
+  writeFileSync(victim, 'precious\n');
+  symlinkSync(victim, join(r.fdir, 'jobs', id, 'job.json.tmp'));
+  r.ok(['note', id, 'hello']);
+  assert.equal(readFileSync(victim, 'utf8'), 'precious\n');
+  assert.equal(lstatSync(join(r.fdir, 'jobs', id, 'job.json')).isFile(), true);
+  assert.match(readFileSync(join(r.fdir, 'jobs', id, 'job.json'), 'utf8'), /hello/);
+}));
+
+test('job.json fields used as paths or git arguments must be what the factory writes', withWorld((w) => {
+  const ann = new Person(w, 'Ann');
+  ann.ok(['init']);
+  const id = ann.newJob('Fields');
+  const m = intruder(w);
+  const plant = (fn: (job: Record<string, any>) => void): void => {
+    m.git(['pull', '-q', '--ff-only']);
+    m.edit(`${id}/job.json`, fn);
+    m.git(['commit', '-q', '-am', 'edit']);
+    m.git(['push', '-q', 'origin', BRANCH]);
+  };
+  const outside = join(w.tmp, 'outside');
+  mkdirSync(outside);
+  const original = JSON.parse(w.remote(['show', `${BRANCH}:${id}/job.json`]));
+  const cases: [(job: Record<string, any>) => void, RegExp][] = [
+    [(j) => (j.id = '../../../outside'), /has id "\.\.\/\.\.\/\.\.\/outside", but the factory only ever writes/],
+    [(j) => (j.id = '002-other'), /has id "002-other"/],
+    [(j) => (j.branch = '--upload-pack=touch /tmp/x'), /has branch "--upload-pack/],
+    [(j) => (j.base = '--output=/tmp/x'), /has base "--output/],
+  ];
+  for (const [fn, message] of cases) {
+    plant((j) => {
+      Object.assign(j, original);
+      fn(j);
+    });
+    for (const args of [['note', id, 'x'], ['close', id], ['status', id]]) {
+      const p = ann.factory(args);
+      assert.equal(p.status, 1, `${args.join(' ')}: ${p.stdout}${p.stderr}`);
+      assert.match(p.stderr, message);
+    }
+  }
+  assert.deepEqual(readdirSync(outside), [], 'nothing written outside the factory dir');
+  // A worktree path from the branch is never used: this machine's own worktrees/<id> is.
+  const precious = join(w.tmp, 'precious');
+  ann.git(['worktree', 'add', '-q', '-b', 'precious', precious]);
+  writeFileSync(join(precious, 'unsaved.txt'), 'work in progress\n');
+  plant((j) => {
+    Object.assign(j, original);
+    j.worktree = precious;
+  });
+  assert.equal(JSON.parse(ann.ok(['status', id, '--json'])).worktree, join(ann.fdir, 'worktrees', id));
+  ann.ok(['close', id, 'not needed']);
+  assert.equal(readFileSync(join(precious, 'unsaved.txt'), 'utf8'), 'work in progress\n', 'another worktree is untouched');
+  assert.equal(ann.job(id).stage, 'done');
 }));

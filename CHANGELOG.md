@@ -23,6 +23,8 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   claim, recreating the worktree from the code remote. `factory remote status` and `factory remote
   push` (publish an existing local factory) round it off. Without `remote`, nothing changes. Station
   agents now say to stop and report when a remote factory refuses them, and never to run `claim`.
+  The state branch is not trusted blindly: symbolic links and submodules on it are refused, and a
+  `job.json` whose `id`, `branch` or `base` is not what the CLI writes is refused.
 - `factory-plugin-advisor` watches a repository's factory station agents. `stations [--repo
   <path>] [--json]` reads the line's history (`factory/jobs/*/job.json`, `proof.md` and the review
   files, old job.json files included) and reports, per station as `factory agents` resolves it
