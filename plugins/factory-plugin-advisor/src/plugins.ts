@@ -20,6 +20,7 @@ export const FALLBACK_PLUGINS = [
   'factory-docs',
   'factory-plugin-advisor',
   'factory-plugin-builder',
+  'factory-plugin-discover',
 ] as const;
 
 export interface MarketplacePlugins {

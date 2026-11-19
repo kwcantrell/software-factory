@@ -1,0 +1,5 @@
+{
+  "name": "factory-plugin-builder",
+  "version": "0.1.0",
+  "description": "Builds software-factory plugins the convention's way: scaffolds a plugin from the template, checks plugins against the CLI convention with a fix for every finding, and runs a plugin's full verification gate."
+}

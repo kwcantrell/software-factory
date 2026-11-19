@@ -8,6 +8,17 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- The `factory-plugin-discover` plugin makes Claude use the right plugin for software-factory work.
+  Its skill (and a `UserPromptSubmit` hook that hints once per session when the prompt or the
+  working directory is about software-factory) has Claude run `match` with a one-line task summary
+  first. `catalog` lists the installed plugins (project and local scope respected, disabled ones
+  marked), their skills, the user's own skills, and the software-factory marketplace plugins that
+  are not installed, all read from Claude Code's own records. `match` ranks them deterministically
+  (software-factory terms and name terms count double, adjacent phrases add a bonus, threshold 3),
+  and when nothing fits gives the `factory-plugin-advisor` commands that record the gap. A fitting
+  plugin that is not installed is handled by the mode (`settings set mode ask|notify|auto-install|off`):
+  `install` runs `claude plugin install <name>@software-factory` only in `auto-install` mode or
+  with `--confirmed` after the user says yes.
 - The `factory-plugin-advisor` plugin makes the software-factory plugins improve from use. Its skill
   has Claude `record` each friction with one of them (a workaround, a step done by hand, missing or
   wrong guidance, a user correction), and an async `PostToolUseFailure` hook records every failed

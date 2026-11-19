@@ -201,6 +201,7 @@ plugins/factory-plugin-builder/            builds plugins for this marketplace: 
 plugins/factory-dev/                       develops this repo: check (every CI gate), release (tag/version check, notes)
 plugins/factory-docs/                      keeps this repo's docs in sync with its code: which, stale, lint, gate
 plugins/factory-plugin-advisor/            tracks recurring friction with these plugins and drafts fixes: record, suggest, file
+plugins/factory-plugin-discover/           finds the plugin or skill that fits a software-factory task: catalog, match, install, a prompt hook
 docs/docs-map.json                         factory-docs' map: each doc and the globs of the code it describes
 templates/plugin/                          the template `npm run new-plugin -- <name>` copies (not in the marketplace)
 package.json, tsconfig.json                dev tooling only: typecheck, tests, new-plugin
@@ -225,6 +226,13 @@ plugin notices: its skill and its hook record each friction in a local, redacted
 issue recurs it drafts a fix with a paste-ready `/factory:run` request (and, only after you confirm,
 files it as an issue on this public repository); see
 [plugins/factory-plugin-advisor/README.md](plugins/factory-plugin-advisor/README.md).
+
+So that Claude reaches for the right one of these plugins in the first place, the
+`factory-plugin-discover` plugin's skill and prompt hook have it run `match` with a one-line summary
+before software-factory work, use the installed plugin or skill that fits, offer to install a
+fitting marketplace plugin (as your mode setting says), and record the gap with
+`factory-plugin-advisor` when none fits; see
+[plugins/factory-plugin-discover/README.md](plugins/factory-plugin-discover/README.md).
 
 Contributing: see [CONTRIBUTING.md](CONTRIBUTING.md). Changes are listed in [CHANGELOG.md](CHANGELOG.md). MIT licensed ([LICENSE](LICENSE)).
 

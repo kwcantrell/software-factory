@@ -1,0 +1,1 @@
+{"session_id": "5b1e9f2a-2222-4c3d-8e54-000000000004", "transcript_path": "/home/dev/.claude/projects/-home-dev-src/5b1e9f2a-2222-4c3d-8e54-000000000004.jsonl", "cwd": "/", "permission_mode": "default", "hook_event_name": "UserPromptSubmit", "prompt": "factory-docs stale says the README is stale after my change"}

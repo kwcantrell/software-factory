@@ -24,12 +24,13 @@ build step and no runtime dependency.
 | `factory-dev` | Develops this repository: `check` (every CI gate in one command) and `release [<tag>]` (the tag/version check and release notes). Its `factory-dev` skill says when to run which. CI and the release workflow run it too. See its `README.md` |
 | `factory-docs` | Keeps this repository's docs in sync with its code: `docs/docs-map.json` maps each doc to the code it describes; `which <path>` (the docs covering a file), `stale` (docs a change left stale), `lint` (the map, and every CLI command mentioned in its README), `gate` (lint + stale; run by `factory-dev check` and CI). Its `factory-docs` skill is the before-finishing workflow. See its `README.md` |
 | `factory-plugin-advisor` | Makes these plugins improve from use: `record` (one friction: a workaround, manual step, missing guidance, user correction or CLI failure), `list`, `show`, `suggest` (a draft fix with a `/factory:run` request once an issue recurs), `dismiss`, `file` (dry run; `--confirm` files the draft on GitHub with `gh`), and a `PostToolUseFailure` hook that records failed plugin CLI calls (not `factory`'s exit 2). Its log is in the user's config dir, redacted. See its `README.md` |
+| `factory-plugin-discover` | Makes Claude use the right plugin for software-factory work: `catalog` (installed plugins and skills, user skills, marketplace plugins not installed, from Claude Code's own records), `match "<task>"` (deterministic shortlist with scores; the `factory-plugin-advisor` record/suggest lines when nothing fits), `settings` and `settings set mode <mode>` (`ask`, `notify`, `auto-install` or `off`), `install <name> [--confirmed]` (the only command that runs `claude`), and a `UserPromptSubmit` hook that hints to run `match` once per session in software-factory work. See its `README.md` |
 
 ## Layout
 
 | Path | What it is |
 | --- | --- |
-| `.claude-plugin/marketplace.json` | Marketplace `software-factory`; entries `factory`, `factory-plugin-builder`, `factory-dev`, `factory-docs` and `factory-plugin-advisor`, each from `./plugins/<name>` |
+| `.claude-plugin/marketplace.json` | Marketplace `software-factory`; entries `factory`, `factory-plugin-builder`, `factory-dev`, `factory-docs`, `factory-plugin-advisor` and `factory-plugin-discover`, each from `./plugins/<name>` |
 | `plugins/factory/.claude-plugin/plugin.json` | Plugin manifest: name `factory`, `version`, `license` |
 | `plugins/factory/package.json` | `"bin": {"factory": "src/cli.ts"}`, `type: module`, private, no `dependencies` |
 | `plugins/factory/src/cli.ts`, `run.ts` | CLI entry, and argument parsing, usage text and exit codes |
@@ -55,6 +56,9 @@ build step and no runtime dependency.
 | `plugins/factory-plugin-advisor/src/` | `cli.ts`, `run.ts`; `advisor.ts` (record, list, show, suggest, dismiss, drafts), `file.ts` (`gh issue create`), `hook.ts`, `hook-filter.ts` (the hook), `redact.ts` (redaction, caps, signatures), `store.ts` (the log), `plugins.ts` (the marketplace's plugins and bins) |
 | `plugins/factory-plugin-advisor/hooks/hooks.json` | Async `PostToolUseFailure` hook on `Bash`: `node src/cli.ts hook` |
 | `plugins/factory-plugin-advisor/skills/factory-plugin-advisor/SKILL.md` | When to `record` and `suggest`; the `file` dry run, then `--confirm` only after an explicit yes |
+| `plugins/factory-plugin-discover/src/` | `cli.ts`, `run.ts`; `catalog.ts` (installed, elsewhere, user skills, available), `match.ts` (scoring, domain terms, advisor lines), `install.ts` (guarded `claude plugin install`), `hook.ts` (the prompt hook), `config.ts` (mode and hinted sessions) |
+| `plugins/factory-plugin-discover/hooks/hooks.json` | `UserPromptSubmit` hook (5 s): `node src/cli.ts hook` |
+| `plugins/factory-plugin-discover/skills/factory-plugin-discover/SKILL.md` | Run `match` before software-factory work; act on each mode; `install --confirmed` only after a yes |
 | `docs/docs-map.json` | The doc map: each doc and the globs of the code it describes, the changelog doc, `*.md` files that are not docs, and where a plugin's CLI is documented |
 | `templates/plugin/` | The plugin template, itself a valid plugin (`plugin-template`), not listed in the marketplace |
 | `package.json`, `package-lock.json`, `tsconfig.json` | Dev tooling only (typecheck, tests, `new-plugin`). Plugins never import from the root |
@@ -137,7 +141,8 @@ next one, rule by rule (the bracketed ids are its rule names).
   `factory-plugin-builder` pre-approves `check`, `verify` and `--help`, not `new`; `factory-dev`
   pre-approves `check`, `release` and `--help`; `factory-docs` pre-approves `which`, `stale`,
   `lint`, `gate` and `--help` (all read-only); `factory-plugin-advisor` pre-approves `record`, `list`,
-  `show`, `suggest` and `--help`, never `file` or `dismiss`.
+  `show`, `suggest` and `--help`, never `file` or `dismiss`; `factory-plugin-discover` pre-approves
+  `match`, `catalog` and `--help`, never `install` or `settings`.
 - **Hooks** run the plugin's own TypeScript in exec form, `"command": "node", "args":
   ["${CLAUDE_PLUGIN_ROOT}/src/cli.ts", "<command>"]` (or a dedicated entry under `src/`, as
   `factory`'s `src/human-gate.ts`), or a shell command starting with the npx prefix [hooks-cli].

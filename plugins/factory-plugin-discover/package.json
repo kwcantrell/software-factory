@@ -1,0 +1,13 @@
+{
+  "name": "factory-plugin-discover",
+  "version": "0.2.0",
+  "private": true,
+  "description": "CLI for the factory-plugin-discover Claude Code plugin (catalog, match, settings, install, hook); run by its skill via npx and its hook via node.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "bin": {
+    "factory-plugin-discover": "src/cli.ts"
+  }
+}
