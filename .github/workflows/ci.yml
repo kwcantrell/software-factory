@@ -12,31 +12,24 @@ permissions:
 
 jobs:
   check:
-    name: scripts/check.sh
+    name: factory-dev check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: "3.12"
-
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          # The plugin needs Node.js 22.18+ (it runs its TypeScript directly); "22" is the newest 22.x.
+          # The plugins need Node.js 22.18+ (they run their TypeScript directly); "22" is the newest 22.x.
           node-version: "22"
           cache: npm
 
       - name: Install dev tooling (typescript, @types/node)
         run: npm ci
 
-      - name: Install shellcheck and the Claude Code CLI
+      - name: Install the Claude Code CLI
         run: |
-          sudo apt-get update
-          sudo apt-get install -y shellcheck
           npm install -g @anthropic-ai/claude-code@2.1.328
-          shellcheck --version
           claude --version
 
-      - name: Run every check
-        run: scripts/check.sh
+      - name: Run every check (factory-dev check)
+        run: npx --yes --offline --loglevel=error --package=./plugins/factory-dev -- factory-dev check --require-claude

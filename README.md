@@ -134,12 +134,19 @@ plugins/factory/                           the plugin
   dashboard/index.html                     the dashboard
   test/                                    node:test suites (CLI, npx, hook, dashboard, compatibility)
 plugins/factory-plugin-builder/            builds plugins for this marketplace: new, check (the CLI convention), verify
+plugins/factory-dev/                       develops this repo: check (every CI gate), release (tag/version check, notes)
 templates/plugin/                          the template `npm run new-plugin -- <name>` copies (not in the marketplace)
 package.json, tsconfig.json                dev tooling only: typecheck, tests, new-plugin
-scripts/check.sh                           every CI check in one command
-scripts/release.py, tests/                 tag/version check and release notes; their tests
 docs/research/                             the build-vs-buy research behind the design
 ```
+
+## Developing
+
+To work on software-factory itself, install the `factory-dev` plugin
+(`/plugin install factory-dev@software-factory`) or run it from the checkout. After `npm ci`,
+`node plugins/factory-dev/src/cli.ts check` runs every check CI runs, and
+`node plugins/factory-dev/src/cli.ts release vX.Y.Z` says whether a tag would release; see
+[plugins/factory-dev/README.md](plugins/factory-dev/README.md).
 
 Contributing: see [CONTRIBUTING.md](CONTRIBUTING.md). Changes are listed in [CHANGELOG.md](CHANGELOG.md). MIT licensed ([LICENSE](LICENSE)).
 
