@@ -1,0 +1,13 @@
+{
+  "name": "factory-doctor",
+  "version": "0.4.0",
+  "description": "Tracks what an application needs to run under each profile (dev, stage, test): env var names, tools and versions, files, services, Claude plugins and skills, in a committed .factory/doctor.json; checks this machine against a profile, and scans the repo to propose missing requirements. Never stores or prints a value.",
+  "author": {
+    "name": "Kalen Cantrell"
+  },
+  "license": "MIT",
+  "keywords": [
+    "software-factory",
+    "template"
+  ]
+}

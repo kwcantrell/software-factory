@@ -42,6 +42,11 @@
       "source": "./plugins/factory-plugin-discover",
       "description": "Finds the installed plugin or skill that fits a software-factory task, offers to install a fitting software-factory marketplace plugin that is not installed yet, and points at factory-plugin-advisor when nothing fits: a local, deterministic catalog and matcher, a mode setting and a guarded install, plus a prompt hook that hints at it.",
       "license": "MIT"
+    },
+    {
+      "name": "factory-doctor",
+      "source": "./plugins/factory-doctor",
+      "description": "Tracks what an application needs to run under each profile (dev, stage, test): env var names, tools and versions, files, services, Claude plugins and skills, in a committed .factory/doctor.json; checks this machine against a profile, and scans the repo to propose missing requirements. Never stores or prints a value."
     }
   ]
 }
