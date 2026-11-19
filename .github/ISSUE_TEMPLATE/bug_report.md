@@ -28,5 +28,5 @@ assignees: ""
 
 - Plugin version (`claude plugin list`):
 - Claude Code version (`claude --version`):
-- OS and Python version (`python3 --version`):
+- OS and Node.js version (`node --version`):
 - `factory.json`, if the project has one:

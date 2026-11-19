@@ -47,7 +47,18 @@ claude --plugin-dir ./software-factory            # or load it for one session w
 /factory:ship 2 reject not needed after all
 ```
 
-Requires git and Python 3.8+ (macOS or Linux). The target repository needs at least one commit.
+Requires git and Node.js 22.18+ (macOS or Linux); nothing else, not even an `npm install`. The target repository needs at least one commit.
+
+### Running the CLI by hand
+
+Skills, agents and the hook all run the plugin's TypeScript CLI through `npx`, straight from the installed plugin folder (Node runs the `.ts` files itself; there is no build step and no runtime dependency). You can run it the same way from any directory in your project:
+
+```sh
+PLUGIN=~/.claude/plugins/cache/software-factory/factory/<version>   # or a checkout's plugins/factory
+npx --yes --offline --loglevel=error --package="$PLUGIN" -- factory status
+```
+
+or, equivalently, `node "$PLUGIN/src/cli.ts" status`. The examples below write it as plain `factory`.
 
 ## Configure
 
@@ -72,17 +83,13 @@ Optional. Put a `factory.json` at the repository root and commit it; anything yo
 
 ## Dashboard
 
-One self-contained HTML file, no build step and no dependencies. `factory dashboard` copies it into the project's `factory/` directory and serves that directory, which is the same as:
-
-```
-cd factory && python3 -m http.server
-```
+One self-contained HTML file, no build step and no dependencies. `factory dashboard [--port 8787]` copies it into the project's `factory/` directory and serves that directory on 127.0.0.1 only, listing directories the way the page expects and refusing any path outside `factory/`.
 
 Jobs are cards that move across the stage columns. Each review round is a row of reviewer chips that fill in as verdicts land. Jobs that need a human are highlighted and counted in the header and the tab title. Click a card to read its markdown files, follow-ups and history. The **Follow-ups** view in the header lists every job's follow-ups in one place (open by default, or all), and cards show their open count. The header shows three line metrics once there is data: first-pass proof rate, review rounds to approval, and time to approval. The page reads `jobs/*/job.json` through the server's directory listing every two seconds, so the files are the only source of truth.
 
 ## How it is enforced
 
-Prompts ask; the `factory` CLI (`bin/factory`, on Claude's PATH while the plugin is enabled) decides. It is the only writer of `job.json` and the only way a job changes stage:
+Prompts ask; the `factory` CLI (`plugins/factory/src/`, run through `npx` as above) decides. It is the only writer of `job.json` and the only way a job changes stage:
 
 - `start` refuses without a `task.md` that has acceptance criteria, then creates the worktree. With the spec gate, it also refuses until a human has approved `task.md`, and again if `task.md` changed after approval.
 - `built` refuses with uncommitted changes, no commits, or no `build.md`.
@@ -113,19 +120,23 @@ factory followup drop 12 3 not worth it
 ## Layout
 
 ```
-.claude-plugin/plugin.json        manifest (plugin name: factory)
-.claude-plugin/marketplace.json   marketplace "software-factory", listing this plugin
-skills/run                        the line: intake -> ship
-skills/approve                    human spec gate (user-invoked only)
-skills/ship                       human merge gate (user-invoked only)
-skills/dashboard                  start the dashboard server
-agents/                           builder, verifier, reviewer-{security,standards,behavior}
-bin/factory                       state machine and gates
-hooks/, scripts/human-gate.sh     human-gate hook (merge, spec approval, rework)
-dashboard/index.html              the dashboard
-scripts/check.sh, tests/          every CI check in one command; CLI and release tests
-scripts/release.py                tag/version check and release notes from CHANGELOG.md
-docs/research/                    the build-vs-buy research behind the design
+.claude-plugin/marketplace.json            marketplace "software-factory", listing plugins/factory
+plugins/factory/                           the plugin
+  .claude-plugin/plugin.json               manifest (plugin name: factory)
+  package.json                             "bin": {"factory": "src/cli.ts"}; no dependencies
+  skills/run                               the line: intake -> ship
+  skills/approve                           human spec gate (user-invoked only)
+  skills/ship                              human merge gate (user-invoked only)
+  skills/dashboard                         start the dashboard server
+  agents/                                  builder, verifier, reviewer-{security,standards,behavior}
+  src/                                     the CLI: state machine, gates, dashboard server
+  hooks/hooks.json, src/human-gate.ts      human-gate hook (merge, spec approval, rework)
+  dashboard/index.html                     the dashboard
+  test/                                    node:test suites (CLI, npx, hook, dashboard, compatibility)
+package.json, tsconfig.json                dev tooling only: typecheck and tests
+scripts/check.sh                           every CI check in one command
+scripts/release.py, tests/                 tag/version check and release notes; their tests
+docs/research/                             the build-vs-buy research behind the design
 ```
 
 Contributing: see [CONTRIBUTING.md](CONTRIBUTING.md). Changes are listed in [CHANGELOG.md](CHANGELOG.md). MIT licensed ([LICENSE](LICENSE)).

@@ -6,19 +6,27 @@ read it too.
 
 ## Dev setup
 
-You need git, Python 3.8+ (macOS or Linux), Node.js (for the Claude Code CLI) and, ideally,
+You need git, Node.js 22.18+ with npm, python3 (only for `scripts/release.py` and its tests,
+until they move to TypeScript), the Claude Code CLI and, ideally,
 [shellcheck](https://www.shellcheck.net/).
 
 ```sh
 git clone https://github.com/kwcantrell/software-factory
 cd software-factory
+npm ci                                     # dev tooling: typescript and @types/node, pinned exactly
 npm install -g @anthropic-ai/claude-code   # provides `claude plugin validate`
 ```
 
+The plugin itself has no dependencies and no build step: Node runs `plugins/factory/src/*.ts`
+directly (type stripping), so code there uses erasable TypeScript only (no `enum`, `namespace` or
+parameter properties) and imports with the `.ts` extension. The root `package.json` is dev tooling
+only; plugins never import from it.
+
 Load your checkout into Claude Code in one of two ways:
 
-- **For one session, no install:** `claude --plugin-dir /path/to/software-factory`. Edits to
-  skills, agents and `bin/factory` are picked up the next time you start a session.
+- **For one session, no install:** `claude --plugin-dir /path/to/software-factory/plugins/factory`.
+  Edits to skills, agents and `plugins/factory/src` are picked up the next time you start a
+  session.
 - **As a marketplace, like users do:** in Claude Code run
   `/plugin marketplace add /path/to/software-factory`, then `/plugin install factory@software-factory`.
   From a shell: `claude plugin marketplace add /path/to/software-factory` and
@@ -37,22 +45,25 @@ One command runs everything CI runs:
 scripts/check.sh
 ```
 
-It validates the plugin and marketplace manifests (`claude plugin validate .`), parses every JSON
-file, byte-compiles `bin/factory` and `scripts/*.py` with `python3 -I`, runs `shellcheck` on every
-`*.sh` file (skipped, with a note, if shellcheck is not installed; CI always installs it), checks
-that the plugin version has a `CHANGELOG.md` section, and runs the test suite. It exits non-zero if
-any check fails and lists the failures at the end.
+It parses every JSON file, validates the marketplace and every plugin (`claude plugin validate .`
+and `claude plugin validate plugins/<name>`), typechecks (`npm run typecheck`), runs the plugin
+tests (`npm test`), byte-compiles `scripts/*.py`, runs `shellcheck` on every `*.sh` file (skipped,
+with a note, if shellcheck is not installed; CI always installs it), checks that the plugin version
+has a `CHANGELOG.md` section, and runs the release script's tests. It exits non-zero if any check
+fails and lists the failures at the end.
 
 The tests alone:
 
 ```sh
-python3 -I -B -m unittest discover -s tests                   # all
-python3 -I -B -m unittest discover -s tests -p test_cli.py    # one file
+npm test                                                   # every plugin's node:test suites
+node --test plugins/factory/test/cli.test.ts               # one file
 ```
 
-`tests/test_cli.py` drives the real `bin/factory` as a subprocess against a temporary git repo with
-`FACTORY_DIR` pointing into it, so it never touches your own `factory/` directory. A change to the
-CLI's behaviour needs a test there. Tests are stdlib `unittest` only.
+`plugins/factory/test/` drives the real CLI as a subprocess (`node src/cli.ts`, and through `npx`
+from a fresh copy of the plugin) against temporary git repos with `FACTORY_DIR` pointing into them,
+so it never touches your own `factory/` directory. A change to the CLI's behaviour needs a test
+there. Tests use `node:test` only. `test/fixtures/` holds job records written by the original
+CLI; `compat.test.ts` keeps the format compatible with them.
 
 ## Branches and commits
 
@@ -80,20 +91,20 @@ Every PR should:
     reviewer.
   - **patch**: bug fixes and wording changes to prompts that do not change the contract.
   PRs do not bump `version` themselves; the release does.
-- Follow the conventions in `CLAUDE.md` (stdlib-only Python, gates in the CLI, human-only commands
-  in `scripts/human-gate.sh`, new `job.json` fields handled by the dashboard, new `factory.json`
-  keys in `DEFAULTS` and validation).
+- Follow the conventions in `CLAUDE.md` (TypeScript run via npx with no runtime dependencies, gates
+  in the CLI, human-only commands in the hook's `plugins/factory/src/gate.ts`, new `job.json` fields
+  handled by the dashboard, new `factory.json` keys in `DEFAULTS` and validation).
 
 ## Releasing
 
 Releases are cut by the maintainer from `main`:
 
 1. Pick the next version from the `Unreleased` entries (see the bump rules above).
-2. Set `"version"` in `.claude-plugin/plugin.json` to it (and in the marketplace entry, if one
-   carries a version).
+2. Set `"version"` in `plugins/factory/.claude-plugin/plugin.json` and `plugins/factory/package.json`
+   to it (and in the marketplace entry, if one carries a version).
 3. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, add a fresh empty
    `## [Unreleased]` above it, and update the compare links at the bottom.
-4. Check it: `scripts/check.sh` and `python3 -I scripts/release.py vX.Y.Z` (prints the release notes).
+4. Check it: `scripts/check.sh` and `scripts/release.py vX.Y.Z` (prints the release notes).
 5. Commit (`Release vX.Y.Z`), merge to `main`, then tag and push the tag:
 
    ```sh
