@@ -1,0 +1,52 @@
+{
+  "id": "003-build-with-worktree",
+  "title": "Build with worktree",
+  "stage": "build",
+  "status": "active",
+  "needs_human": null,
+  "activity": "builder model: opus - test",
+  "spec": null,
+  "spec_sha": null,
+  "branch": "factory/003-build-with-worktree",
+  "base": "66b7769b4e7a89d149367ee75b48e8650f4ac28c",
+  "base_branch": "main",
+  "worktree": "/tmp/tmp.NSYipNDM9q/repo/factory/worktrees/003-build-with-worktree",
+  "proof_attempts": 0,
+  "rounds": [],
+  "followups": [
+    {
+      "n": 1,
+      "text": "\u00dcn\u00efcode follow-up with \"quotes\"",
+      "by": "builder",
+      "stage": "build",
+      "at": "2026-11-19T06:09:32Z",
+      "status": "open",
+      "resolution": null,
+      "resolved_at": null
+    }
+  ],
+  "created": "2026-11-19T06:09:32Z",
+  "history": [
+    {
+      "at": "2026-11-19T06:09:32Z",
+      "stage": "intake",
+      "event": "created"
+    },
+    {
+      "at": "2026-11-19T06:09:32Z",
+      "stage": "build",
+      "event": "building"
+    },
+    {
+      "at": "2026-11-19T06:09:32Z",
+      "stage": "build",
+      "event": "builder model: opus - test"
+    },
+    {
+      "at": "2026-11-19T06:09:32Z",
+      "stage": "build",
+      "event": "follow-up 1 added by builder"
+    }
+  ],
+  "updated": "2026-11-19T06:09:32Z"
+}

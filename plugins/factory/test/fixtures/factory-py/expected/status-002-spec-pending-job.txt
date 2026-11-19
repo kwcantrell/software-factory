@@ -1,0 +1,7 @@
+002-spec-pending-job                           intake  needs-human   !! review task.md and approve the spec
+  title:    Spec pending job
+  job dir:  <ROOT>/jobs/002-spec-pending-job
+  worktree: None
+  branch:   None  base: None
+  activity: needs human: review task.md and approve the spec
+  follow-ups: 0 open (factory followup list 002-spec-pending-job)

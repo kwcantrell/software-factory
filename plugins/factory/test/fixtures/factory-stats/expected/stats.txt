@@ -1,0 +1,6 @@
+jobs                        8 (6 approved)
+first-pass proof            12%
+approved in first round     50%
+review rounds to approval   2 avg
+time to approval            1.52525e+06h median
+escalated to a human        25%

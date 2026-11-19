@@ -1,0 +1,7 @@
+005-merged-job                                 done    merged      r1[+]
+  title:    Merged job
+  job dir:  <ROOT>/jobs/005-merged-job
+  worktree: None
+  branch:   factory/005-merged-job  base: 66b7769b4e7a89d149367ee75b48e8650f4ac28c
+  activity: merged into main
+  follow-ups: 0 open (factory followup list 005-merged-job)

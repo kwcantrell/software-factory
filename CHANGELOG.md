@@ -8,6 +8,21 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Changed
 
+- The `factory` CLI is now TypeScript, run through `npx` from the installed plugin
+  (`npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory <command>`),
+  with no build step and no runtime dependencies. It needs **Node.js 22.18+** and no longer
+  Python. Commands, options, gates, exit codes, `factory.json` and the `job.json` format are
+  unchanged, so existing `factory/` directories keep working.
+- The plugin moved to `plugins/factory/`; the marketplace lists it from there. Install as before:
+  `/plugin install factory@software-factory`.
+- Skills and agents call the CLI through `npx`; the "use `bin/factory` if `factory` is not on
+  PATH" fallback is gone. The skills pre-approve their read-only and station commands
+  (`allowed-tools`), never `merge`, `approve` or `rework`.
+- The human-gate hook is TypeScript run by `node`, and reads the Bash command from the hook
+  payload instead of matching the raw input; it still asks before `factory merge`, `approve` and
+  `rework`, also in the npx form.
+- `factory dashboard` serves the dashboard itself on 127.0.0.1, refusing any path outside the
+  factory directory, instead of starting Python's `http.server`.
 - Moved to its own repository, `kwcantrell/software-factory`, out of the plugin monorepo it
   started in. The repository root is now both the plugin and a marketplace named
   `software-factory`: install with `/plugin marketplace add kwcantrell/software-factory`, then

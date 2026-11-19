@@ -1,0 +1,46 @@
+[
+  {
+    "n": 1,
+    "text": "\u00dcn\u00efcode follow-up with \"quotes\"",
+    "by": "builder",
+    "stage": "build",
+    "at": "2026-11-19T06:09:32Z",
+    "status": "open",
+    "resolution": null,
+    "resolved_at": null,
+    "job": "003-build-with-worktree"
+  },
+  {
+    "n": 1,
+    "text": "Open one",
+    "by": "security",
+    "stage": "ship",
+    "at": "2026-11-19T06:09:33Z",
+    "status": "open",
+    "resolution": null,
+    "resolved_at": null,
+    "job": "004-shipped-after-two-rounds"
+  },
+  {
+    "n": 2,
+    "text": "Done one",
+    "by": "standards",
+    "stage": "ship",
+    "at": "2026-11-19T06:09:33Z",
+    "status": "done",
+    "resolution": "job 009",
+    "resolved_at": "2026-11-19T06:09:33Z",
+    "job": "004-shipped-after-two-rounds"
+  },
+  {
+    "n": 3,
+    "text": "Dropped one",
+    "by": "supervisor",
+    "stage": "ship",
+    "at": "2026-11-19T06:09:33Z",
+    "status": "dropped",
+    "resolution": null,
+    "resolved_at": "2026-11-19T06:09:33Z",
+    "job": "004-shipped-after-two-rounds"
+  }
+]

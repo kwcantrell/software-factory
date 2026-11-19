@@ -1,0 +1,18 @@
+{
+  "name": "software-factory",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Software Factory marketplace: dev tooling only (typecheck, tests). Plugins never depend on the root.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test --test-timeout=120000 'plugins/*/test/**/*.test.ts'"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "typescript": "7.0.2"
+  }
+}

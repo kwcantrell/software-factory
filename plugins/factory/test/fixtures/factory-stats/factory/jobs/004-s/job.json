@@ -1,0 +1,41 @@
+{
+  "id": "004-s",
+  "title": "s",
+  "stage": "done",
+  "status": "merged",
+  "needs_human": null,
+  "activity": "",
+  "spec": null,
+  "spec_sha": null,
+  "branch": null,
+  "base": null,
+  "base_branch": null,
+  "worktree": null,
+  "proof_attempts": 0,
+  "rounds": [],
+  "followups": [],
+  "created": "2026-01-01T00:00:00Z",
+  "history": [
+    {
+      "at": "2026-01-01T00:00:00Z",
+      "stage": "x",
+      "event": "proof failed (attempt 1)"
+    },
+    {
+      "at": "2026-01-01T00:00:00Z",
+      "stage": "x",
+      "event": "proof passed"
+    },
+    {
+      "at": "2200-01-01T00:00:07Z",
+      "stage": "x",
+      "event": "approved in round 1"
+    },
+    {
+      "at": "2026-01-01T00:00:00Z",
+      "stage": "x",
+      "event": "needs human: approved by every reviewer"
+    }
+  ],
+  "updated": "2026-01-01T00:00:00Z"
+}

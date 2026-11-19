@@ -1,0 +1,76 @@
+{
+  "id": "005-merged-job",
+  "title": "Merged job",
+  "stage": "done",
+  "status": "merged",
+  "needs_human": null,
+  "activity": "merged into main",
+  "spec": null,
+  "spec_sha": null,
+  "branch": "factory/005-merged-job",
+  "base": "66b7769b4e7a89d149367ee75b48e8650f4ac28c",
+  "base_branch": "main",
+  "worktree": null,
+  "proof_attempts": 0,
+  "rounds": [
+    {
+      "n": 1,
+      "reviewers": {
+        "solo": {
+          "verdict": "approve",
+          "at": "2026-11-19T06:09:33Z"
+        }
+      }
+    }
+  ],
+  "followups": [],
+  "created": "2026-11-19T06:09:33Z",
+  "history": [
+    {
+      "at": "2026-11-19T06:09:33Z",
+      "stage": "intake",
+      "event": "created"
+    },
+    {
+      "at": "2026-11-19T06:09:33Z",
+      "stage": "build",
+      "event": "building"
+    },
+    {
+      "at": "2026-11-19T06:09:33Z",
+      "stage": "proof",
+      "event": "awaiting independent proof"
+    },
+    {
+      "at": "2026-11-19T06:09:33Z",
+      "stage": "review",
+      "event": "proof passed"
+    },
+    {
+      "at": "2026-11-19T06:09:33Z",
+      "stage": "review",
+      "event": "review round 1 opened"
+    },
+    {
+      "at": "2026-11-19T06:09:33Z",
+      "stage": "review",
+      "event": "round 1: solo -> approve"
+    },
+    {
+      "at": "2026-11-19T06:09:33Z",
+      "stage": "ship",
+      "event": "approved in round 1"
+    },
+    {
+      "at": "2026-11-19T06:09:33Z",
+      "stage": "ship",
+      "event": "needs human: approved by every reviewer - awaiting your merge"
+    },
+    {
+      "at": "2026-11-19T06:09:33Z",
+      "stage": "done",
+      "event": "merged into main"
+    }
+  ],
+  "updated": "2026-11-19T06:09:33Z"
+}

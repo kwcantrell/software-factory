@@ -4,9 +4,11 @@
 Check that a release tag matches the plugin version and print that version's
 release notes from CHANGELOG.md.
 
-- TAG must equal "v" + the "version" in .claude-plugin/plugin.json. Without a
-  TAG, the plugin's own version is used (so the check command can confirm the
-  current version is releasable).
+- TAG must equal "v" + the "version" in the factory plugin's
+  .claude-plugin/plugin.json (plugins/factory/, found through the "source" of
+  the "factory" entry in .claude-plugin/marketplace.json). Without a TAG, the
+  plugin's own version is used (so the check command can confirm the current
+  version is releasable).
 - If the "factory" entry in .claude-plugin/marketplace.json carries a
   "version", it must match too.
 - CHANGELOG.md must have a non-empty "## [X.Y.Z]" section for that version; its
@@ -37,8 +39,19 @@ def read_json(path):
         raise Mismatch(f"{path} is not valid JSON: {e}")
 
 
+def plugin_dir(root):
+    """The factory plugin's folder: its marketplace entry's "source", or the root without one."""
+    path = root / ".claude-plugin" / "marketplace.json"
+    if path.exists():
+        for entry in read_json(path).get("plugins", []):
+            source = entry.get("source") if entry.get("name") == PLUGIN else None
+            if isinstance(source, str) and source.startswith("./") and ".." not in Path(source).parts:
+                return root / source
+    return root
+
+
 def plugin_version(root):
-    version = read_json(root / ".claude-plugin" / "plugin.json").get("version")
+    version = read_json(plugin_dir(root) / ".claude-plugin" / "plugin.json").get("version")
     if not isinstance(version, str) or not re.fullmatch(r"\d+\.\d+\.\d+", version):
         raise Mismatch(f"plugin.json 'version' must be X.Y.Z, got {version!r}")
     return version

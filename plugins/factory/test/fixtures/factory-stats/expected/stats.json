@@ -1,0 +1,9 @@
+{
+  "jobs": 8,
+  "approved": 6,
+  "first_pass_proof_rate": 0.12,
+  "avg_review_rounds": 2.0,
+  "first_round_approval_rate": 0.5,
+  "median_hours_to_approval": 1525248.0,
+  "escalation_rate": 0.25
+}

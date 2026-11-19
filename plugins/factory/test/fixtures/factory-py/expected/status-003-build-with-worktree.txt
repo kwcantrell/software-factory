@@ -1,0 +1,7 @@
+003-build-with-worktree                        build   active      
+  title:    Build with worktree
+  job dir:  <ROOT>/jobs/003-build-with-worktree
+  worktree: /tmp/tmp.NSYipNDM9q/repo/factory/worktrees/003-build-with-worktree
+  branch:   factory/003-build-with-worktree  base: 66b7769b4e7a89d149367ee75b48e8650f4ac28c
+  activity: builder model: opus - test
+  follow-ups: 1 open (factory followup list 003-build-with-worktree)

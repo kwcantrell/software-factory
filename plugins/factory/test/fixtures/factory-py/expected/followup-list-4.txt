@@ -1,0 +1,6 @@
+004-shipped-after-two-rounds #1 (security, ship)
+  Open one
+004-shipped-after-two-rounds #2 (standards, ship)  [done: job 009]
+  Done one
+004-shipped-after-two-rounds #3 (supervisor, ship)  [dropped]
+  Dropped one

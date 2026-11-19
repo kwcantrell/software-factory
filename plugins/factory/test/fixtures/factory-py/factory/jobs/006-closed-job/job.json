@@ -1,0 +1,41 @@
+{
+  "id": "006-closed-job",
+  "title": "Closed job",
+  "stage": "done",
+  "status": "closed",
+  "needs_human": null,
+  "activity": "closed without merging: not needed",
+  "spec": null,
+  "spec_sha": null,
+  "branch": "factory/006-closed-job",
+  "base": "b6eb05b76f9b0b842fbb78dddb0f703073552747",
+  "base_branch": "main",
+  "worktree": null,
+  "proof_attempts": 0,
+  "rounds": [],
+  "followups": [],
+  "created": "2026-11-19T06:09:33Z",
+  "history": [
+    {
+      "at": "2026-11-19T06:09:33Z",
+      "stage": "intake",
+      "event": "created"
+    },
+    {
+      "at": "2026-11-19T06:09:33Z",
+      "stage": "build",
+      "event": "building"
+    },
+    {
+      "at": "2026-11-19T06:09:33Z",
+      "stage": "build",
+      "event": "needs human: which database?"
+    },
+    {
+      "at": "2026-11-19T06:09:33Z",
+      "stage": "done",
+      "event": "closed without merging: not needed"
+    }
+  ],
+  "updated": "2026-11-19T06:09:33Z"
+}

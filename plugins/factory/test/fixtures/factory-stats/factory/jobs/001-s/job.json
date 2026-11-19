@@ -1,0 +1,31 @@
+{
+  "id": "001-s",
+  "title": "s",
+  "stage": "done",
+  "status": "merged",
+  "needs_human": null,
+  "activity": "",
+  "spec": null,
+  "spec_sha": null,
+  "branch": null,
+  "base": null,
+  "base_branch": null,
+  "worktree": null,
+  "proof_attempts": 0,
+  "rounds": [],
+  "followups": [],
+  "created": "2026-01-01T00:00:00Z",
+  "history": [
+    {
+      "at": "2026-01-01T00:00:00Z",
+      "stage": "x",
+      "event": "proof passed"
+    },
+    {
+      "at": "2026-01-15T07:40:30Z",
+      "stage": "x",
+      "event": "approved in round 1"
+    }
+  ],
+  "updated": "2026-01-01T00:00:00Z"
+}
