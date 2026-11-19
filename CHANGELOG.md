@@ -8,6 +8,18 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- The `factory-plugin-advisor` plugin makes the software-factory plugins improve from use. Its skill
+  has Claude `record` each friction with one of them (a workaround, a step done by hand, missing or
+  wrong guidance, a user correction), and an async `PostToolUseFailure` hook records every failed
+  run of a marketplace plugin's CLI (through the npx prefix or `node .../src/cli.ts`, also from the
+  plugin cache), except `factory`'s exit 2, an escalation to a human. Occurrences are redacted
+  (credentials, secret-looking keys and flags, JWTs, URL credentials, private keys, provider
+  tokens, long random strings), capped, and kept in an owner-only log in the user's config dir,
+  never inside a git checkout. `list` and `show` group them by a signature that ignores URLs,
+  paths, numbers, ids and factory job ids; `suggest` writes a draft fix (target plugin, evidence,
+  proposed change and a `/factory:run` request) once an issue is seen 3 times; `dismiss` silences
+  one; `file` shows the GitHub issue it would open on `kwcantrell/software-factory` (public) and
+  files it with `gh` only with `--confirm`, once, after re-checking it for secrets.
 - The `factory-docs` plugin keeps this repository's docs in sync with its code. A checked-in map,
   `docs/docs-map.json`, declares the code each doc describes (the root README, `CLAUDE.md`,
   `CONTRIBUTING.md`, `CHANGELOG.md`, each plugin's README, and each skill and agent prompt).

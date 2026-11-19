@@ -1,0 +1,16 @@
+{
+  "session_id": "abc123",
+  "transcript_path": "/home/user/.claude/projects/-home-user-app/00893aaf-19fa-41d2-8238-13269b9b3ca0.jsonl",
+  "cwd": "/home/user/app",
+  "permission_mode": "default",
+  "hook_event_name": "PostToolUseFailure",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "npx --yes -- eslint src",
+    "description": "Lint"
+  },
+  "tool_use_id": "toolu_01ABC789",
+  "error": "Exit code 1\neslint: 3 problems",
+  "is_interrupt": false,
+  "duration_ms": 2100
+}

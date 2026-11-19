@@ -1,0 +1,19 @@
+{
+  "description": "factory-plugin-advisor: records a cli-failure occurrence when a Bash command running a software-factory marketplace plugin CLI exits non-zero (a factory exit 2, an escalation to a human, is not recorded). Claude Code reports a non-zero Bash exit as PostToolUseFailure (PostToolUse fires only for successful calls), so this runs only after failed Bash calls, in the background. It prints nothing and never blocks.",
+  "hooks": {
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/src/cli.ts", "hook"],
+            "async": true,
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

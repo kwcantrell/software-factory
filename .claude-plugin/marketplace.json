@@ -30,6 +30,12 @@
       "source": "./plugins/factory-docs",
       "description": "Keeps software-factory docs in sync with code: a map from each doc to the code it describes, which docs cover a file, which docs a change left stale, a lint for the map and CLI command coverage, and the gate CI runs",
       "license": "MIT"
+    },
+    {
+      "name": "factory-plugin-advisor",
+      "source": "./plugins/factory-plugin-advisor",
+      "description": "Tracks recurring friction with the software-factory plugins (CLI failures, workarounds, manual steps, missing guidance, user corrections) in a local redacted log, and drafts a suggested plugin change with a paste-ready /factory:run request once an issue recurs",
+      "license": "MIT"
     }
   ]
 }
