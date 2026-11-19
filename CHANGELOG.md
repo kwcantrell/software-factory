@@ -25,7 +25,8 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   normalised remote URL and branch in the advisor's config dir (never the repo), `record`, the hook,
   `list`, `show` and `suggest` behave as with sharing off, push nothing and read nothing from the
   branch. `record` says so once per session on stderr with the `share allow` command. A changed URL
-  or branch needs a new acknowledgement; `share list` shows acknowledged remotes and
+  or branch needs a new acknowledgement, and a `scheme://` URL that git could read as another host
+  (`?`, `#` or `\` after the host, or two `@`) is never acknowledged or matched; `share list` shows acknowledged remotes and
   `share revoke <url> [<branch>]` withdraws one. The skill pre-approves only `share list` and has
   Claude ask the user before `share allow`. Anyone already sharing runs `share allow` once.
 - factory-plugin-advisor: opt-in team sharing. With `factory.json` `"advisor": {"share": true}` and a

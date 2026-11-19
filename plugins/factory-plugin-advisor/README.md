@@ -154,8 +154,12 @@ node plugins/factory-plugin-advisor/src/cli.ts share allow --repo <path>
 
 It records the remote's URL and branch in `share-allowed.json` in your config dir, never in the
 repository, and prints the public-remote warning below if it applies. The URL is normalised first:
-credentials (anything before `@` in a `scheme://` URL) are dropped and never stored, the scheme and
-host are lower-cased, trailing slashes and `.`/`..` path segments go. A `factory.json` that names
+credentials (the user info before the host's `@` in a `scheme://` URL) are dropped and never stored,
+the scheme and host are lower-cased, trailing slashes and `.`/`..` path segments go. The host is read
+the way git reads it, and a `scheme://` URL that could be taken for another host is refused outright,
+never acknowledged and never matched: one with `?`, `#` or `\` straight after the host
+(`https://evil.example?@github.com/org/x` goes to `evil.example`), or with more than one `@` before
+it. For such a URL, `record`'s notice says it cannot be acknowledged instead. A `factory.json` that names
 another URL or branch needs another acknowledgement; `share list` shows what you have acknowledged
 and `share revoke <url> [<branch>]` withdraws it. Until the remote is acknowledged, or after it is
 revoked, `record`, the hook, `list`, `show`, `suggest`, `dismiss`, `file` and `stations` behave

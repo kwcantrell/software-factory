@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { afterEach, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { EXIT } from '../src/run.ts';
-import { AUTHOR, displayUrl, mergeState, normaliseUrl, privateHost, publicWarning, remoteHost, type ShareConfig, sharedOccurrence } from '../src/shared.ts';
+import { AUTHOR, ambiguousUrl, displayUrl, mergeState, normaliseUrl, privateHost, publicWarning, remoteHost, type ShareConfig, sharedOccurrence } from '../src/shared.ts';
 import { FIXTURES, PLUGIN_ROOT, sandbox, type Sandbox } from './helpers.ts';
 import type { Env } from '../src/plugins.ts';
 
@@ -237,6 +237,49 @@ test('a changed URL or branch in factory.json needs a new acknowledgement; the s
   assert.equal(JSON.parse(ok(ann.box.call(['share', 'list', '--json']))).remotes.length, 2);
 });
 
+test('a URL git reads as another host never matches an acknowledged remote, and is never acknowledged', () => {
+  const ann = user('Ann', {}, {}, false);
+  // Ann acknowledged https://good.invalid/team/x from another repository.
+  const good = join(ann.box.dir, 'good');
+  mkdirSync(good);
+  git(['init', '-q', '-b', 'main', good], good);
+  const goodUrl = 'https://good.invalid/team/x';
+  writeFileSync(join(good, 'factory.json'), `${JSON.stringify({ remote: { url: goodUrl, branch: BRANCH }, advisor: { share: true } })}\n`);
+  ok(ann.box.call(['share', 'allow', '--repo', good]));
+  const allowFile = join(ann.box.config, 'share-allowed.json');
+  const acknowledged = readFileSync(allowFile, 'utf8');
+  assert.deepEqual(JSON.parse(acknowledged).remotes.map((x: any) => x.url), [goodUrl]);
+  // Ann's own repository names a URL that looks like that remote but that git sends elsewhere.
+  const sneaky = ['https://evil.invalid?@good.invalid/team/x', 'https://evil.invalid#@good.invalid/team/x', 'https://evil.invalid\\@good.invalid/team/x', 'https://a@evil.invalid@good.invalid/team/x'];
+  sneaky.forEach((url, i) => {
+    writeFileSync(join(ann.project, 'factory.json'), `${JSON.stringify({ remote: { url, branch: BRANCH }, advisor: { share: true } })}\n`);
+    ann.box.env.CLAUDE_CODE_SESSION_ID = `session-${i}`;
+    const r = record(ann, `docs gate fails ${i}`);
+    assert.equal(r.code, EXIT.ok, r.stderr);
+    assert.match(r.stdout, new RegExp(`seen ${i + 1} times?\\.`), 'counted locally only');
+    assert.equal(r.stderr.split('\n').filter((l) => l !== '').length, 1, r.stderr);
+    assert.match(r.stderr, /but that URL cannot be acknowledged \(.*\), so nothing is shared or read from it$/m, url);
+    assert.doesNotMatch(r.stderr, /share allow/, 'no advice to acknowledge what cannot be');
+    assert.equal(existsSync(join(ann.box.config, 'shared')), false, `${url}: no clone, no queue, nothing pushed or read`);
+    const lines = readFileSync(join(ann.box.config, 'occurrences.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    for (const l of lines) assert.equal(l.id, undefined, `${url}: the occurrence was not shared`);
+    // share allow refuses it and names the host git would actually reach.
+    const allow = ann.box.call(['share', 'allow']);
+    assert.equal(allow.code, EXIT.failure, url);
+    assert.equal(allow.stdout, '');
+    assert.match(allow.stderr, /^factory-plugin-advisor: refusing to acknowledge /);
+    if (!url.startsWith('https://a@')) assert.ok(allow.stderr.includes('git connects to "evil.invalid"'), allow.stderr);
+    assert.equal(readFileSync(allowFile, 'utf8'), acknowledged, 'the acknowledgements are unchanged');
+  });
+  // The hook is silent and shares nothing either.
+  const hook = readFileSync(join(FIXTURES, 'hook-factory-refused.json'), 'utf8');
+  assert.deepEqual(ann.box.call(['hook'], { stdin: hook }), { code: EXIT.ok, stdout: '', stderr: '' });
+  assert.equal(existsSync(join(ann.box.config, 'shared')), false);
+  // An acknowledgement written for such a URL (by hand, say) is ignored.
+  writeFileSync(allowFile, `${JSON.stringify({ version: 1, remotes: [{ url: sneaky[0], branch: BRANCH, at: '2026-01-01T00:00:00Z' }] })}\n`);
+  assert.deepEqual(JSON.parse(ok(ann.box.call(['share', 'list', '--json']))).remotes, []);
+});
+
 test('revoked: share revoke stops sharing and reading at once; an unknown remote is refused', () => {
   const { remote } = world();
   const bob = user('Bob', shared(remote));
@@ -303,6 +346,19 @@ test('normaliseUrl: credentials, case of scheme and host, trailing slashes and d
   ];
   for (const [input, want] of cases) assert.equal(normaliseUrl(input), want, input);
   assert.notEqual(normaliseUrl('git@github.com:org/repo.git'), normaliseUrl('git@github.com:org/other.git'));
+  // The authority ends where git ends it: at the first '/', '?', '#' or '\\', user info at its last '@'.
+  for (const sep of ['?', '#', '\\']) {
+    const url = `https://evil.example${sep}@good.example/x`;
+    assert.equal(normaliseUrl(url), url, url);
+    assert.notEqual(normaliseUrl(url), normaliseUrl('https://good.example/x'));
+    assert.equal(displayUrl(url), url, 'nothing that looks like user info is dropped');
+    assert.equal(remoteHost(url), 'evil.example');
+    assert.match(ambiguousUrl(url) ?? '', /git connects to "evil\.example"/);
+  }
+  assert.equal(displayUrl('https://u:p@evil.example?x=@good/y'), 'https://evil.example?x=@good/y');
+  assert.equal(remoteHost('https://a@evil.example@good.example/x'), 'good.example');
+  assert.match(ambiguousUrl('https://a@evil.example@good.example/x') ?? '', /more than one '@'/);
+  for (const fine of ['https://u:pw@github.com/o/r.git', 'https://github.com', 'ssh://git@host:22/x', 'git@github.com:o/r.git', '/srv/x.git', 'https://host/x?y@z']) assert.equal(ambiguousUrl(fine), null, fine);
 });
 
 // ------------------------------------------------------------------ 2. what is shared

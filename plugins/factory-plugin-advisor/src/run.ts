@@ -22,7 +22,7 @@ import { type Env, marketplacePlugins, ownRoot, reservedNames } from './plugins.
 import { identityOf, osIdentity, type SystemIdentity } from './redact.ts';
 import { applyStation, type ApplyResult, dismissStation, type Line, locateFactory, locateRepo, stationsReport, type StationsReport, suggestStations, type SuggestResult } from './station-drafts.ts';
 import { DEFAULT_MIN } from './stations.ts';
-import { allowRemote, type Allowed, displayUrl, factoryJsonPath, publicWarning, readAllowed, readShareConfig, revokeRemote, type ShareConfig, unacknowledgedNotice } from './shared.ts';
+import { allowRemote, type Allowed, ambiguousUrl, displayUrl, factoryJsonPath, publicWarning, readAllowed, readShareConfig, revokeRemote, type ShareConfig, unacknowledgedNotice } from './shared.ts';
 import { CliError, openStore } from './store.ts';
 
 export const CLI_NAME = 'factory-plugin-advisor';
@@ -455,6 +455,8 @@ function shareToAllow(repo: string | undefined, env: Env, cwd: string): ShareCon
   }
   const share = readShareConfig(env, path);
   if (typeof share === 'string') throw new CliError(`nothing to acknowledge: ${share}`);
+  const why = ambiguousUrl(share.url);
+  if (why !== null) throw new CliError(`refusing to acknowledge ${displayUrl(share.url)} from ${share.configPath}: ${why}`);
   return share;
 }
 

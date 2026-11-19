@@ -137,9 +137,36 @@ export function shareConfig(env: Env, cwd: string): ShareConfig | null {
   return typeof out === 'string' ? null : out;
 }
 
-/** The remote as it may be printed: credentials in an https URL (`user:token@`) are dropped. */
+/**
+ * A `scheme://` URL split the way git (through curl) reads it: the authority ends at the first `/`,
+ * `?`, `#` or `\`, and only its last `@` ends the user info. Null for any other form of remote.
+ */
+function splitSchemeUrl(url: string): { scheme: string; userinfo: string | null; host: string; rest: string } | null {
+  const m = /^([A-Za-z][A-Za-z0-9+.-]*):\/\/([^/?#\\]*)([\s\S]*)$/.exec(url);
+  if (m === null) return null;
+  const authority = m[2] ?? '';
+  const at = authority.lastIndexOf('@');
+  return { scheme: m[1] ?? '', userinfo: at < 0 ? null : authority.slice(0, at), host: authority.slice(at + 1), rest: m[3] ?? '' };
+}
+
+/**
+ * Why a `scheme://` remote URL could be read as naming a host other than the one git connects to,
+ * or null when it cannot: a `?`, `#` or `\` before the path (`https://evil?@good/x` goes to `evil`),
+ * or more than one `@` in the authority. Such a URL is never acknowledged, nor matches an
+ * acknowledgement.
+ */
+export function ambiguousUrl(url: string): string | null {
+  const u = splitSchemeUrl(url.trim());
+  if (u === null) return null;
+  if (u.rest !== '' && !u.rest.startsWith('/')) return `its host part is followed by '${u.rest[0]}' rather than '/', so git connects to ${JSON.stringify(u.host)}, whatever follows`;
+  if (u.userinfo !== null && u.userinfo.includes('@')) return "its host part has more than one '@'";
+  return null;
+}
+
+/** The remote as it may be printed: credentials in a `scheme://` URL (`user:token@`) are dropped. */
 export function displayUrl(url: string): string {
-  return url.replace(/^([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^@/]*@/, '$1');
+  const u = splitSchemeUrl(url);
+  return u === null || u.userinfo === null ? url : `${u.scheme}://${u.host}${u.rest}`;
 }
 
 // ------------------------------------------------------------------ the user's acknowledgement
@@ -164,15 +191,15 @@ export interface Allowed {
 }
 
 /**
- * The form a remote is acknowledged and compared in: a `scheme://` URL loses its user info (never a
- * token on disk) and gets a lower-case scheme and host; an scp-like `[user@]host:path` a lower-case
+ * The form a remote is acknowledged and compared in: a `scheme://` URL, split as git reads it
+ * (splitSchemeUrl), loses its user info (never a token on disk) and gets a lower-case scheme and host; an scp-like `[user@]host:path` a lower-case
  * host; an absolute path is resolved (`..`, `.` and `//` folded). Trailing slashes go.
  */
 export function normaliseUrl(url: string): string {
   const u = url.trim();
   const strip = (path: string): string => path.replace(/\/+$/, '');
-  const scheme = /^([A-Za-z][A-Za-z0-9+.-]*):\/\/(?:[^@/]*@)?([^/]*)(.*)$/.exec(u);
-  if (scheme !== null) return `${(scheme[1] ?? '').toLowerCase()}://${(scheme[2] ?? '').toLowerCase()}${strip(scheme[3] ?? '')}`;
+  const scheme = splitSchemeUrl(u);
+  if (scheme !== null) return `${scheme.scheme.toLowerCase()}://${scheme.host.toLowerCase()}${strip(scheme.rest)}`;
   if (isAbsolute(u)) return resolve(u);
   if (/^[A-Za-z]:[\\/]/.test(u)) return u;
   const scp = /^((?:[^@/]*@)?)([^/:]+):(.*)$/.exec(u);
@@ -194,13 +221,14 @@ export function readAllowed(configDir: string): Allowed[] {
   for (const r of remotes as unknown[]) {
     if (typeof r !== 'object' || r === null) continue;
     const { url, branch, at } = r as Record<string, unknown>;
-    if (typeof url === 'string' && urlOk(url) && typeof branch === 'string' && branchOk(branch) && typeof at === 'string' && ISO.test(at)) out.push({ url, branch, at });
+    if (typeof url === 'string' && urlOk(url) && ambiguousUrl(url) === null && typeof branch === 'string' && branchOk(branch) && typeof at === 'string' && ISO.test(at)) out.push({ url, branch, at });
   }
   return out;
 }
 
 /** Whether the user acknowledged exactly this remote URL and branch. */
 export function allowed(configDir: string, share: ShareConfig): boolean {
+  if (ambiguousUrl(share.url) !== null) return false;
   const url = normaliseUrl(share.url);
   return readAllowed(configDir).some((a) => a.url === url && a.branch === share.branch);
 }
@@ -212,6 +240,8 @@ function writeAllowed(configDir: string, list: Allowed[], files: Files): void {
 
 /** Acknowledges the remote factory.json names; `added` is false when it already was. */
 export function allowRemote(configDir: string, share: ShareConfig, files: Files, now: Date): { entry: Allowed; added: boolean } {
+  const why = ambiguousUrl(share.url);
+  if (why !== null) throw new Error(`refusing to acknowledge ${displayUrl(share.url)}: ${why}`);
   const list = readAllowed(configDir);
   const url = normaliseUrl(share.url);
   const have = list.find((a) => a.url === url && a.branch === share.branch);
@@ -270,6 +300,8 @@ export function allowCommand(share: ShareConfig): string {
  */
 export function unacknowledgedNotice(configDir: string, share: ShareConfig, env: Env, files: Files): string | null {
   if (!firstInSession(join(configDir, NOTICE_FILE), `${normaliseUrl(share.url)}\n${share.branch}`, env, files)) return null;
+  const why = ambiguousUrl(share.url);
+  if (why !== null) return `${share.configPath} turns on sharing with ${displayUrl(share.url)} (branch ${share.branch}), but that URL cannot be acknowledged (${why}), so nothing is shared or read from it`;
   return `${share.configPath} turns on sharing with ${displayUrl(share.url)} (branch ${share.branch}), but you have not acknowledged that remote, so nothing is shared or read from it; to share, run: ${allowCommand(share)}`;
 }
 
@@ -280,8 +312,8 @@ export const PUBLIC_HOSTS = ['github.com', 'gitlab.com', 'bitbucket.org', 'codeb
 
 /** The host of a git URL (`scheme://[user@]host[:port]/...` or scp-like `[user@]host:path`), or null for a local path. */
 export function remoteHost(url: string): string | null {
-  const scheme = /^([A-Za-z][A-Za-z0-9+.-]*):\/\/(?:[^@/]*@)?(\[[^\]]+\]|[^/:]+)/.exec(url);
-  if (scheme !== null) return (scheme[1] ?? '').toLowerCase() === 'file' ? null : (scheme[2] ?? '').toLowerCase();
+  const scheme = splitSchemeUrl(url);
+  if (scheme !== null) return scheme.scheme.toLowerCase() === 'file' ? null : (/^(\[[^\]]*\]|[^:]*)/.exec(scheme.host)?.[1] ?? '').toLowerCase();
   if (isAbsolute(url) || url.startsWith('.') || /^[A-Za-z]:[\\/]/.test(url)) return null;
   // scp-like syntax: a colon before the first slash.
   const scp = /^(?:[^@/]*@)?([^/:]+):/.exec(url);
