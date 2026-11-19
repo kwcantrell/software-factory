@@ -62,7 +62,8 @@ missing. In this repo each plugin's README covers its `src/**`, `package.json` a
 `.claude-plugin/plugin.json`, plus its `hooks/**` when it has hooks (`factory-plugin-advisor`; the
 `factory` plugin's hooks are covered by the root `README.md`), and any other plugin's code it
 describes (the `factory-plugin-advisor` README also covers `plugins/factory/src/remote.ts`, which
-accepts its shared `advisor/` directory on the state branch), and each SKILL.md covers the CLI
+accepts its shared `advisor/` directory on the state branch, and the `factory-doctor` README also
+covers the builder and verifier templates, whose fixed `doctor` section it describes), and each SKILL.md covers the CLI
 code it calls (the `factory-plugin-advisor` skill, for example, covers `run.ts`, `advisor.ts`,
 `file.ts`, `shared.ts`, `store.ts` (where sharing waits for the user's acknowledgement), and
 `stations.ts` and `station-drafts.ts` for its `stations` commands). `CLAUDE.md`

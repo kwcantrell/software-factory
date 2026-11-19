@@ -8,6 +8,25 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- factory-doctor, a new plugin: a committed, reviewable record in the application's repo,
+  `.factory/doctor.json`, of what running the app needs per profile (dev, stage, test, ...; with
+  `extends`): tools with version constraints, environment variable names (with an optional format
+  check), files, TCP services, Claude Code plugins and skills, each with a `why` and a `source`.
+  Never a value: loading refuses a `value`, `default` or `secret` key, `add` refuses value-bearing
+  flags, and no output ever holds a variable's value. `check [<profile>]` checks this machine and
+  prints a fix per problem (exit 1 when anything required is missing); `scan` reads the repository
+  (dotenv examples and names, env reads in code and compose files, engines, version files,
+  Dockerfiles, CI steps) and proposes requirements with their file:line, read-only; `add`, `remove`
+  and `init` are dry runs unless `--confirm`; `profiles` lists them. Its skill pre-approves only
+  `check`, `scan`, `profiles` and `--help`.
+- factory: the builder and verifier run the factory-doctor check first. Their templates and the
+  shipped agents have a new fixed `doctor` section: when the repository has `.factory/doctor.json`,
+  check the profile the task names before running the app, report a missing item instead of
+  working around it, record a run the environment prevented as not verified (never a pass), and add
+  a newly discovered requirement to the file in the job's commits. Existing project agents fail
+  `factory agents check` until refreshed (`factory agents new <station> --force`, or add the
+  section from the template).
+
 - Remote factory: signed state commits, verified at the merge gate. Every state commit the CLI makes
   in remote mode is signed with the person's own SSH key (`git commit -S` with `gpg.format ssh` and
   `user.signingkey`); a command that would change state refuses before changing anything, naming
