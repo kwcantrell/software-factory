@@ -240,15 +240,18 @@ function fuHtml(j, f) {
 }
 const fuOrder = (a, b) => (a.status !== 'open') - (b.status !== 'open') || a.n - b.n;
 
+// With a remote factory, job.json comes from a shared branch: every value is escaped, and the
+// verdict class comes only from the known verdicts.
 function roundsHtml(j) {
-  if (!j.rounds || !j.rounds.length) return '';
+  if (!Array.isArray(j.rounds) || !j.rounds.length) return '';
   return '<div class="rounds">' + j.rounds.map(r =>
-    `<div class="round"><span class="n">R${r.n}</span><span class="chips">` + Object.entries(r.reviewers).map(([name, v]) => {
-      const key = `${j.id}/${r.n}/${name}/${v.verdict}`;
-      const fresh = v.verdict && !firstLoad && !seenVerdicts.has(key);
-      if (v.verdict) seenVerdicts.add(key);
-      const label = v.verdict === 'approve' ? 'approved' : v.verdict === 'changes' ? 'changes requested' : 'pending';
-      return `<span class="chip ${v.verdict || ''}${fresh ? ' landed' : ''}" title="${esc(name)}: ${label}">${esc(name)}</span>`;
+    `<div class="round"><span class="n">R${esc(r.n)}</span><span class="chips">` + Object.entries(r.reviewers || {}).map(([name, v]) => {
+      const verdict = v && (v.verdict === 'approve' || v.verdict === 'changes') ? v.verdict : '';
+      const key = `${j.id}/${r.n}/${name}/${verdict}`;
+      const fresh = verdict && !firstLoad && !seenVerdicts.has(key);
+      if (verdict) seenVerdicts.add(key);
+      const label = verdict === 'approve' ? 'approved' : verdict === 'changes' ? 'changes requested' : 'pending';
+      return `<span class="chip ${verdict}${fresh ? ' landed' : ''}" title="${esc(name)}: ${label}">${esc(name)}</span>`;
     }).join('') + '</span></div>').join('') + '</div>';
 }
 

@@ -9,6 +9,7 @@ import { createServer } from 'node:net';
 import type { AddressInfo } from 'node:net';
 import { networkInterfaces, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { runInNewContext } from 'node:vm';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { CLI, cleanEnv, PLUGIN } from './helpers.ts';
@@ -52,14 +53,20 @@ after(() => {
 });
 
 /** A raw GET: the path is sent exactly as given (fetch() would normalise "/../"). */
-function get(path: string, host = '127.0.0.1'): Promise<{ status: number; type: string; body: string; location?: string }> {
+function get(path: string, host = '127.0.0.1'): Promise<{ status: number; type: string; body: string; location?: string; csp?: string }> {
   return new Promise((resolve, reject) => {
     const req = request({ host, port, path, method: 'GET' }, (res) => {
       let body = '';
       res.setEncoding('utf8');
       res.on('data', (c: string) => (body += c));
       res.on('end', () =>
-        resolve({ status: res.statusCode ?? 0, type: String(res.headers['content-type']), body, location: res.headers.location }),
+        resolve({
+          status: res.statusCode ?? 0,
+          type: String(res.headers['content-type']),
+          body,
+          location: res.headers.location,
+          csp: res.headers['content-security-policy'] as string | undefined,
+        }),
       );
     });
     req.on('error', reject);
@@ -134,4 +141,43 @@ test('paths that escape the factory dir are refused', async () => {
     assert.ok(r.status >= 400 && r.status < 500, `${path}: ${r.status}`);
     assert.doesNotMatch(r.body, /outside the factory dir/, path);
   }
+});
+
+test('the page and job files are served with a CSP that keeps the page from sending data elsewhere', async () => {
+  for (const path of ['/', '/jobs/']) {
+    const csp = (await get(path)).csp ?? '';
+    assert.match(csp, /default-src 'self'/, path);
+    assert.match(csp, /connect-src 'self'/, path);
+    assert.match(csp, /img-src 'self' data:(;|$)/, path);
+    assert.doesNotMatch(csp, /\*|https?:/, path);
+  }
+});
+
+/** dashboard/index.html's esc() and roundsHtml(), run as the page runs them. */
+function pageRounds(): (job: unknown) => string {
+  const page = readFileSync(join(PLUGIN, 'dashboard', 'index.html'), 'utf8');
+  const esc = /^const esc = .*$/m.exec(page);
+  const rounds = /^function roundsHtml\(j\) \{[\s\S]*?^\}$/m.exec(page);
+  assert.ok(esc && rounds, 'esc or roundsHtml not found in dashboard/index.html');
+  const ctx = { firstLoad: false, seenVerdicts: new Set(), out: null as unknown };
+  runInNewContext(`${esc[0]}\n${rounds[0]}\nout = roundsHtml;`, ctx);
+  return ctx.out as (job: unknown) => string;
+}
+
+test('round numbers and verdicts from a shared job.json are escaped, never rendered as markup', () => {
+  const roundsHtml = pageRounds();
+  const html = roundsHtml({
+    id: '001-x',
+    rounds: [{ n: '<img src=x onerror=alert(1)>', reviewers: { security: { verdict: '"><img src=x onerror=fetch(1)>' }, '<b>x</b>': {} } }],
+  });
+  assert.doesNotMatch(html, /<img|<b>/);
+  assert.match(html, /R&lt;img src=x onerror=alert\(1\)&gt;/);
+  assert.match(html, /<span class="chip " title="security: pending">security<\/span>/);
+  assert.match(html, /&lt;b&gt;x&lt;\/b&gt;/);
+  // The known verdicts still style their chips; old files without rounds still render.
+  const ok = roundsHtml({ id: '002-y', rounds: [{ n: 1, reviewers: { behavior: { verdict: 'approve' }, standards: { verdict: 'changes' } } }] });
+  assert.match(ok, /<span class="n">R1<\/span>/);
+  assert.match(ok, /class="chip approve landed"/);
+  assert.match(ok, /class="chip changes landed"/);
+  assert.equal(roundsHtml({ id: '003-z' }), '');
 });

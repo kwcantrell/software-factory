@@ -50,6 +50,14 @@ export function listing(urlPath: string, dir: string): string {
   );
 }
 
+// Job files can come from a shared state branch (remote factory). Even if markup from one slipped
+// through, the page may load and send nothing beyond this server, so it cannot carry the factory
+// dir (worktrees included) anywhere else.
+export const CSP =
+  "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
+  "img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; " +
+  "frame-ancestors 'none'";
+
 function send(res: ServerResponse, status: number, body: string, head: boolean): void {
   res.writeHead(status, {
     'Content-Type': 'text/plain; charset=utf-8',
@@ -133,6 +141,7 @@ function handle(root: string, req: IncomingMessage, res: ServerResponse): void {
         'Content-Type': 'text/html; charset=utf-8',
         'Content-Length': Buffer.byteLength(body),
         'Cache-Control': 'no-store',
+        'Content-Security-Policy': CSP,
       });
       res.end(head ? undefined : body);
       return;
@@ -148,6 +157,7 @@ function handle(root: string, req: IncomingMessage, res: ServerResponse): void {
     'Content-Length': st.size,
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy': CSP,
   });
   if (head) {
     res.end();

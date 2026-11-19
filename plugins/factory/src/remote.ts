@@ -179,6 +179,7 @@ function markState(dir: string): void {
 export function isStateCheckout(dir: string): boolean {
   if (basename(dir) !== 'jobs') return false;
   const get = (key: string): string => sh(['config', '--local', '--get', key], dir).stdout.trim();
+  // factory.lastsync also marks checkouts attached before factory.state existed; keep it.
   return get('factory.state') === 'true' || get('factory.lastsync') !== '';
 }
 
