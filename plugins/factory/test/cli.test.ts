@@ -487,3 +487,130 @@ test('status, stats and followup list skip a job whose job.json fails validation
     assert.match(q.stderr, /is not valid JSON|is not a job record the factory wrote/);
   }
 }));
+
+// ------------------------------------------------- the built commit (job.head)
+
+/** Refused (exit 1) for a moved branch, naming both commits, with job.json byte for byte as before. */
+function assertMovedRefused(r: Repo, id: string, args: string[], recorded: string, tip: string): void {
+  const path = join(r.jobDir(id), 'job.json');
+  const before = readFileSync(path, 'utf8');
+  const p = r.factory(args);
+  assert.equal(p.status, 1, p.stdout + p.stderr);
+  assert.equal(p.stdout, '');
+  assert.ok(p.stderr.includes(recorded), p.stderr);
+  assert.ok(p.stderr.includes(tip), p.stderr);
+  assert.match(p.stderr, new RegExp(`run \`factory built ${id}\` again`));
+  assert.equal(readFileSync(path, 'utf8'), before);
+}
+
+test('built records the branch head, status shows it, and a later built replaces it', withRepo((r) => {
+  const id = r.startedJob();
+  const wt = r.commitIn(id);
+  r.write(id, 'build.md', '# b\n');
+  r.ok(['built', id]);
+  const first = r.git(['rev-parse', 'HEAD'], wt);
+  const job = r.job(id);
+  assert.equal(job.head, first);
+  assert.equal(Object.keys(job).at(-1), 'head');
+  assert.match(r.ok(['status', id]), new RegExp(`built: +${first.slice(0, 12)} `));
+  r.write(id, 'proof.md', '# p\n');
+  r.ok(['proof', id, 'fail']);
+  r.commitIn(id, 'more.txt');
+  r.ok(['built', id]);
+  const second = r.git(['rev-parse', 'HEAD'], wt);
+  assert.notEqual(second, first);
+  assert.equal(r.job(id).head, second);
+  // A job never built (and so any job.json from an older CLI) shows no built line.
+  assert.doesNotMatch(r.ok(['status', r.startedJob()]), /built:/);
+}));
+
+test('proof refuses once the branch moved past the built commit; built again sends it back through proof', withRepo((r) => {
+  const id = r.startedJob();
+  const wt = r.commitIn(id);
+  for (const n of ['build.md', 'proof.md']) r.write(id, n, '# n\n');
+  r.ok(['built', id]);
+  const recorded = r.job(id).head as string;
+  r.commitIn(id, 'late.txt');
+  const tip = r.git(['rev-parse', 'HEAD'], wt);
+  assertMovedRefused(r, id, ['proof', id, 'pass'], recorded, tip);
+  r.ok(['built', id]);
+  const job = r.job(id);
+  assert.deepEqual([job.stage, job.head], ['proof', tip]);
+  assert.match(job.activity, /code changed after built/);
+  r.ok(['proof', id, 'pass']);
+}));
+
+test('round refuses once the branch moved past the built commit', withRepo((r) => {
+  const id = r.startedJob();
+  const wt = r.commitIn(id);
+  for (const n of ['build.md', 'proof.md']) r.write(id, n, '# n\n');
+  r.ok(['built', id]);
+  r.ok(['proof', id, 'pass']);
+  const recorded = r.job(id).head as string;
+  r.commitIn(id, 'late.txt');
+  assertMovedRefused(r, id, ['round', id], recorded, r.git(['rev-parse', 'HEAD'], wt));
+}));
+
+test('verdict refuses once the branch moved; built again drops the unfinished round', withRepo((r) => {
+  const id = r.startedJob();
+  const wt = r.commitIn(id);
+  for (const n of ['build.md', 'proof.md', 'review-1-solo.md', 'review-1-other.md']) r.write(id, n, '# n\n');
+  r.ok(['built', id]);
+  r.ok(['proof', id, 'pass']);
+  r.ok(['round', id, 'solo', 'other']);
+  r.ok(['verdict', id, 'other', 'approve']);
+  const recorded = r.job(id).head as string;
+  r.commitIn(id, 'late.txt');
+  const tip = r.git(['rev-parse', 'HEAD'], wt);
+  assertMovedRefused(r, id, ['verdict', id, 'solo', 'approve'], recorded, tip);
+  r.ok(['built', id]);
+  const job = r.job(id);
+  assert.deepEqual([job.stage, job.head, job.rounds.length], ['proof', tip, 0]);
+  assert.match(job.activity, /unfinished review round 1 discarded/);
+  // Unmoved, built is still only the end of the build stage.
+  assert.match(r.factory(['built', id]).stderr, /is in 'proof', expected build/);
+}));
+
+test('merge refuses a branch that moved past the built commit, and merges nothing', withRepo((r) => {
+  const id = r.shippedJob();
+  const recorded = r.job(id).head as string;
+  const wt = r.commitIn(id, 'unreviewed.txt');
+  const tip = r.git(['rev-parse', 'HEAD'], wt);
+  const main = r.git(['rev-parse', 'HEAD']);
+  assertMovedRefused(r, id, ['merge', id], recorded, tip);
+  assert.match(r.factory(['merge', id]).stderr, new RegExp(`factory rework ${id}`));
+  assert.equal(r.git(['rev-parse', 'HEAD']), main);
+  assert.equal(existsSync(join(r.repo, 'unreviewed.txt')), false);
+}));
+
+test('merge merges the built commit: the merge commit\'s second parent is job.head', withRepo((r) => {
+  const id = r.shippedJob();
+  const recorded = r.job(id).head as string;
+  r.ok(['merge', id]);
+  assert.equal(r.git(['rev-parse', 'HEAD^2']), recorded);
+  assert.equal(r.job(id).head, recorded);
+}));
+
+test('a local job.json without head (an older CLI) still loads, lists and merges its branch', withRepo((r) => {
+  const id = r.shippedJob();
+  const path = join(r.jobDir(id), 'job.json');
+  const job = r.job(id);
+  const tip = job.head as string;
+  delete job.head;
+  writeFileSync(path, `${JSON.stringify(job, null, 2)}\n`);
+  assert.match(r.ok(['status']), new RegExp(id));
+  r.ok(['merge', id]);
+  assert.equal(r.git(['rev-parse', 'HEAD^2']), tip);
+  assert.equal(r.job(id).stage, 'done');
+}));
+
+test('a job.json whose head is not a commit hash is refused', withRepo((r) => {
+  const id = r.shippedJob();
+  const path = join(r.jobDir(id), 'job.json');
+  const job = r.job(id);
+  job.head = 'main';
+  writeFileSync(path, `${JSON.stringify(job, null, 2)}\n`);
+  const p = r.factory(['merge', id]);
+  assert.equal(p.status, 1);
+  assert.match(p.stderr, /'head' is not a commit hash/);
+}));

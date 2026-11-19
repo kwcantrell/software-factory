@@ -187,6 +187,7 @@ function pageLoadJobs(files: Record<string, string | null>): { load: () => Promi
   const page = readFileSync(join(PLUGIN, 'dashboard', 'index.html'), 'utf8');
   const parts = [
     /^const STAGES = .*$/m,
+    /^const SHA = .*$/m,
     /^function jobProblem\(j, dir\) \{[\s\S]*?^\}$/m,
     /^const warnedJobs = .*$/m,
     /^async function loadJobs\(\) \{[\s\S]*?^\}$/m,
@@ -231,4 +232,46 @@ test('the dashboard skips a job whose job.json fails validation, warning once pe
   // The next poll shows the same jobs and does not warn again.
   assert.deepEqual([...(await load())].map((j) => j.id), ids);
   assert.equal(warnings.length, 4);
+});
+
+test('a job card shows the built commit (job.head) short, and older job.json files without it still render', () => {
+  const page = readFileSync(join(PLUGIN, 'dashboard', 'index.html'), 'utf8');
+  const parts = [
+    /^const SHA = .*$/m,
+    /^const esc = .*$/m,
+    /^const view = .*$/m,
+    /^const ago = [\s\S]*?^\};$/m,
+    /^const isHuman = .*$/m,
+    /^const followups = .*$/m,
+    /^const openFu = .*$/m,
+    /^const ownerName = .*$/m,
+    /^const headHtml = [\s\S]*?: '';$/m,
+    /^function roundsHtml\(j\) \{[\s\S]*?^\}$/m,
+    /^function cardHtml\(j\) \{[\s\S]*?^\}$/m,
+  ].map((re) => re.exec(page)?.[0]);
+  assert.ok(parts.every(Boolean), `not found in dashboard/index.html: part ${parts.findIndex((x) => !x)}`);
+  const ctx = { firstLoad: true, seenVerdicts: new Set(), out: null as unknown };
+  runInNewContext(`${parts.join('\n')}\nout = cardHtml;`, ctx);
+  const cardHtml = ctx.out as (job: unknown) => string;
+  const base = { id: '001-x', title: 't', stage: 'proof', status: 'active', activity: 'a', updated: '2026-01-01T00:00:00Z', rounds: [], history: [] };
+  const sha = 'a'.repeat(28) + '0123456789ab';
+  const html = cardHtml({ ...base, head: sha });
+  assert.match(html, new RegExp(`<span class="sha" title="Built commit ${sha}">${sha.slice(0, 12)}</span>`));
+  // An older job.json without head renders, with no sha.
+  const old = cardHtml(base);
+  assert.match(old, /<div class="title">t<\/div>/);
+  assert.doesNotMatch(old, /class="sha"/);
+  // jobProblem accepts a 40- or 64-hex head or none, and skips anything else.
+  const job = (id: string, extra: Record<string, unknown> = {}): string =>
+    JSON.stringify({ id, title: 't', stage: 'proof', status: 'active', created: '2026-01-01T00:00:00Z', rounds: [], history: [], ...extra });
+  const { load, warnings } = pageLoadJobs({
+    '001-sha1': job('001-sha1', { head: 'b'.repeat(40) }),
+    '002-sha256': job('002-sha256', { head: 'c'.repeat(64) }),
+    '003-none': job('003-none'),
+    '004-bad': job('004-bad', { head: 'main' }),
+  });
+  return load().then((jobs) => {
+    assert.deepEqual([...jobs].map((j) => j.id), ['001-sha1', '002-sha256', '003-none']);
+    assert.match(warnings.join('\n'), /skipping jobs\/004-bad\/: 'head' is not a commit hash/);
+  });
 });

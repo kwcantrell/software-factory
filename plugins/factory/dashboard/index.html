@@ -142,6 +142,7 @@
   .card .foot .age { margin-top: 0; }
   .fu-badge { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; }
   .card .owner { font-size: 11px; color: var(--muted); }
+  .card .sha { font-size: 11px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
   .fu-page { max-width: 860px; margin: 0 auto; padding: 4px 8px 40px; }
   .fu-bar { display: flex; align-items: center; gap: 12px; margin: 4px 0 16px; color: var(--muted); font-size: 13px; }
@@ -213,7 +214,8 @@ async function listDir(url) {
 // Why a job.json is not one the board can show ('' when it is), as the CLI's listings judge it (a copy
 // of checkJob in src/factory.ts: change both together): one
 // bad job on a shared state branch is skipped, never allowed to take the board down. Older job.json
-// files without followups (or owner) are fine.
+// files without followups (or owner, or head) are fine.
+const SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 function jobProblem(j, dir) {
   const obj = v => typeof v === 'object' && v !== null && !Array.isArray(v);
   if (!obj(j)) return 'it is not a JSON object';
@@ -223,6 +225,7 @@ function jobProblem(j, dir) {
   if (!Array.isArray(j.history) || !j.history.every(h => obj(h) && typeof h.event === 'string' && typeof h.at === 'string')) return "'history' is not a list of entries";
   if (!Array.isArray(j.rounds) || !j.rounds.every(r => obj(r) && obj(r.reviewers) && Object.values(r.reviewers).every(obj))) return "'rounds' is not a list of rounds";
   if (j.followups !== undefined && !(Array.isArray(j.followups) && j.followups.every(obj))) return "'followups' is not a list";
+  if (j.head !== undefined && !(typeof j.head === 'string' && SHA.test(j.head))) return "'head' is not a commit hash";
   return '';
 }
 const warnedJobs = new Set();
@@ -253,6 +256,9 @@ const followups = j => Array.isArray(j.followups) ? j.followups : [];
 const openFu = j => followups(j).filter(f => f.status === 'open').length;
 // Remote factory only: who claimed the job. Older job.json files have no owner.
 const ownerName = j => (j.owner && typeof j.owner === 'object' && j.owner.name) ? String(j.owner.name) : '';
+// The commit `factory built` handed to proof (what review and merge judge). Older job.json files have none.
+const headHtml = j => typeof j.head === 'string' && SHA.test(j.head)
+  ? `<span class="sha" title="Built commit ${esc(j.head)}">${esc(j.head.slice(0, 12))}</span>` : '';
 const when = iso => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
 // One follow-up. Its text is markdown written by an agent or a human; md() escapes it.
@@ -289,7 +295,7 @@ function cardHtml(j) {
   return `<button class="${cls}" data-id="${esc(j.id)}">
     <div class="id">${esc(j.id.split('-')[0])}</div>
     <div class="title">${esc(j.title)}</div>${line}${roundsHtml(j)}
-    <div class="foot"><span class="age">${ago(j.updated)}</span>${ownerName(j) ? `<span class="owner" title="Claimed by ${esc(ownerName(j))}">${esc(ownerName(j))}</span>` : ''}${openFu(j) ? `<span class="fu-badge" title="Open follow-ups">${openFu(j)} follow-up${openFu(j) === 1 ? '' : 's'}</span>` : ''}</div></button>`;
+    <div class="foot"><span class="age">${ago(j.updated)}</span>${headHtml(j)}${ownerName(j) ? `<span class="owner" title="Claimed by ${esc(ownerName(j))}">${esc(ownerName(j))}</span>` : ''}${openFu(j) ? `<span class="fu-badge" title="Open follow-ups">${openFu(j)} follow-up${openFu(j) === 1 ? '' : 's'}</span>` : ''}</div></button>`;
 }
 
 // Line metrics, derived from job history (same definitions as `factory stats`).

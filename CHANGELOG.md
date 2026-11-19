@@ -44,6 +44,16 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   command turns it off, and never blocks on its own failure. It never generates a key, touches a
   private key or bypasses signing; the skill pre-approves only `status`, `allowed-signers` and
   `--help`.
+- `factory merge` merges only the commit that was proven and reviewed. `built` records the job
+  branch's head in `job.json` (new optional `head` field, written after the older keys; `factory
+  status <id>` and the dashboard card show it short). `proof`, `round`, `verdict` and `merge` refuse
+  (exit 1, naming both commits, nothing changed) while the branch is not at that commit, and say to
+  run `factory built` again, which now also works from `proof` and `review` when the branch moved
+  (an unfinished review round is discarded). `merge` merges the recorded commit, never the branch
+  name. A force-push that rolls the state branch back to a signed `ship` record can no longer get
+  code built after that approval merged. Older jobs without `head` merge their branch as before
+  locally; in a remote factory with signing on, `merge` refuses them until the job is reworked and
+  built again.
 - Remote factory: signed state commits, verified at the merge gate. Every state commit the CLI makes
   in remote mode is signed with the person's own SSH key (`git commit -S` with `gpg.format ssh` and
   `user.signingkey`); a command that would change state refuses before changing anything, naming
