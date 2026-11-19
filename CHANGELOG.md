@@ -8,6 +8,17 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- The `factory-docs` plugin keeps this repository's docs in sync with its code. A checked-in map,
+  `docs/docs-map.json`, declares the code each doc describes (the root README, `CLAUDE.md`,
+  `CONTRIBUTING.md`, `CHANGELOG.md`, each plugin's README, and each skill and agent prompt).
+  `factory-docs which <path>` names the docs covering a file, `stale` lists the docs a change left
+  unchanged although code they cover changed (exit 1), `lint` checks the map and that each plugin's
+  README mentions every command its CLI lists, and `gate` runs both. `factory-dev check` runs the
+  gate as its `docs` step, CI runs it on every pull request against the base branch, and the
+  `factory-docs` skill tells agents changing the repo to run it before finishing.
+- `factory-plugin-builder new` (and `npm run new-plugin`) starts a new plugin at the version the
+  marketplace's plugins share, so it passes `factory-dev check` without hand edits.
+
 - `factory upgrade` and the `/factory:upgrade` skill move a repository from an older factory (the
   original `factory@kwcantrell-plugins` plugin, or `factory@software-factory` 0.2.0 with the
   Python CLI) to this version: Claude Code settings switch to `factory@software-factory` (user
