@@ -6,6 +6,13 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Fixed
+
+- `factory-plugin-advisor` no longer masks the current username as a word when it is one of
+  `factory followup`'s subcommands (`add`, `list`, `done`, `drop`, in any case), so "factory
+  followup list printed nothing" is stored unchanged for a user named `list`. Home paths, emails
+  and mentions are still masked for such a user.
+
 ## [0.3.0] - 2026-11-19
 
 ### Upgrading

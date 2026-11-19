@@ -87,8 +87,9 @@ already redacted: text after a typed marker (`Cookie: a=[redacted] x; b=secret`)
   `runner`, `node`, `ubuntu`), or, ignoring case, a word the advisor writes itself: a marketplace
   plugin or CLI bin name (read from the marketplace at run time, e.g. `factory`, `factory-dev`) or
   a `factory` subcommand (`new`, `start`, `built`, `proof`, `round`, `verdict`, `merge` and the
-  rest of `factory --help`). Masking those would turn every summary about that plugin or command
-  into `[user] proof exited 1` and change its signature. The home part of such a user's paths
+  rest of `factory --help`) or a `factory followup` subcommand (`add`, `list`, `done`, `drop`, as
+  `factory followup --help` lists them). Masking those would turn every summary about that plugin
+  or command into `[user] proof exited 1` and change its signature. The home part of such a user's paths
   (`/home/factory/...`) and `$HOME` are still masked;
 - email addresses become `[email]`. npm scopes (`@types/node`), `git@host:owner/repo` remotes and
   decorators (`@param`) are not emails;

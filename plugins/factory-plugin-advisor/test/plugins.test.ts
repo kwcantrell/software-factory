@@ -5,7 +5,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
-import { FACTORY_COMMANDS, FALLBACK_PLUGINS, findManifest, marketplacePlugins, MARKETPLACE_NAME } from '../src/plugins.ts';
+import { FACTORY_COMMANDS, FACTORY_FOLLOWUP_COMMANDS, FALLBACK_PLUGINS, findManifest, marketplacePlugins, MARKETPLACE_NAME } from '../src/plugins.ts';
 import { PLUGIN_ROOT } from './helpers.ts';
 
 const REPO_ROOT = join(PLUGIN_ROOT, '..', '..');
@@ -64,4 +64,12 @@ test('FACTORY_COMMANDS equals the subcommands `factory --help` lists', () => {
   const listed = /\{([a-z,-]+)\}/.exec(r.stdout)?.[1]?.split(',');
   assert.ok(listed !== undefined && listed.length > 0, r.stdout);
   assert.deepEqual([...FACTORY_COMMANDS], listed, 'update FACTORY_COMMANDS in src/plugins.ts when a factory subcommand is added or removed');
+});
+
+test('FACTORY_FOLLOWUP_COMMANDS equals the subcommands `factory followup --help` lists', () => {
+  const r = spawnSync(process.execPath, [join(REPO_ROOT, 'plugins', 'factory', 'src', 'cli.ts'), 'followup', '--help'], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  const listed = /\{([a-z,-]+)\}/.exec(r.stdout)?.[1]?.split(',');
+  assert.ok(listed !== undefined && listed.length > 0, r.stdout);
+  assert.deepEqual([...FACTORY_FOLLOWUP_COMMANDS], listed, 'update FACTORY_FOLLOWUP_COMMANDS in src/plugins.ts when a factory followup subcommand is added or removed');
 });
