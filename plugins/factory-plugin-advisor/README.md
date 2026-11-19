@@ -254,7 +254,7 @@ tell is private. Credentials in the URL are never printed.
   `.claude-plugin/marketplace.json` and each plugin's `package.json` `bin`: next to this plugin in a
   checkout, else at the install location Claude Code records for `software-factory` in
   `~/.claude/plugins/known_marketplaces.json`. If neither is found, a built-in list of the plugins at
-  the time of writing is used. An interrupted command is not recorded.
+  the time of writing is used (`src/plugins.ts`' `FALLBACK_PLUGINS`, which now includes `factory-doctor`). An interrupted command is not recorded.
 - **`factory` exit codes.** The `factory` CLI exits 1 when a gate refuses (recorded, with its
   `refused: ...` line) and 2 when it escalates a job to a human, which is by design and not recorded.
   Every other plugin's exit 2 (a usage error) is recorded.
