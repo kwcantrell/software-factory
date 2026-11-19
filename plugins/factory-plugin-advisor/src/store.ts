@@ -37,9 +37,17 @@ export interface IssueState {
   filed?: { url: string; repo: string; at: string };
 }
 
+/** A station suggestion's state (see station-drafts.ts), keyed `<repo key>/<id>`. */
+export interface StationState {
+  status: 'drafted' | 'applied' | 'dismissed';
+  at: string;
+}
+
 export interface State {
   version: 1;
   issues: Record<string, IssueState>;
+  /** Optional: state files written before station suggestions existed have none. */
+  stations?: Record<string, StationState>;
 }
 
 /** `$FACTORY_PLUGIN_ADVISOR_CONFIG_DIR`, else `$XDG_CONFIG_HOME/factory-plugin-advisor`, else `~/.config/factory-plugin-advisor`. */
@@ -221,6 +229,38 @@ export class Store {
     const path = this.draftPath(signature);
     this.writeFile(path, text);
     return path;
+  }
+
+  /** `stations/<repo key>`: one repository's station suggestion drafts, records and backups. */
+  stationDir(key: string): string {
+    if (!/^[0-9a-f]{12}$/.test(key)) throw new CliError(`not a repository key: ${key}`);
+    return join(this.dir, 'stations', key);
+  }
+
+  /** Writes `stations/<key>/<name>` (name may hold subdirectories, never `..`), 0600 in 0700 dirs. */
+  writeStationFile(key: string, name: string, text: string): string {
+    if (name.split(/[\\/]/).some((p) => p === '..' || p === '') || isAbsolute(name)) throw new CliError(`not a station file name: ${name}`);
+    this.prepare();
+    const path = join(this.stationDir(key), name);
+    for (let d = dirname(path), chain: string[] = []; ; d = dirname(d)) {
+      if (d === this.dir || existsSync(d)) {
+        for (const c of [d, ...chain.reverse()]) if (c !== this.dir) this.ensureDir(c);
+        break;
+      }
+      chain.push(d);
+    }
+    this.writeFile(path, text);
+    return path;
+  }
+
+  readStationFile(key: string, name: string): string | null {
+    const path = join(this.stationDir(key), name);
+    try {
+      return readFileSync(path, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw new CliError(`cannot read ${path}: ${(error as Error).message}`);
+    }
   }
 
   readDraft(signature: string): string | null {

@@ -190,9 +190,11 @@ function advisorRules(root: string): Map<string, string> {
   const allowed = frontmatter(readFileSync(ADVISOR_SKILL, 'utf8'))['allowed-tools'] ?? '';
   const rules = new Map<string, string>();
   for (const [, rule = ''] of allowed.matchAll(/Bash\(([^)]*)\)/g)) {
-    assert.ok(rule.endsWith(':*'), rule);
+    // An exact rule (no `:*`, e.g. `stations --json`) allows only that one line: not a prefix.
+    if (!rule.endsWith(':*')) continue;
     const prefix = rule.slice(0, -2).replaceAll('${CLAUDE_PLUGIN_ROOT}', root);
-    rules.set(prefix.split(' ').at(-1) ?? '', prefix);
+    // Keyed by the command after the bin: `record`, `suggest`, `stations suggest`.
+    rules.set(prefix.split(' -- factory-plugin-advisor ').at(-1) ?? '', prefix);
   }
   return rules;
 }

@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { fakeGh } from './helpers.ts';
+import { APPROVED, type JobSpec, writeLine } from './stations-fixtures.ts';
 
 const CLI_NAME = 'factory-plugin-advisor';
 const SKILL = 'skills/factory-plugin-advisor/SKILL.md';
@@ -25,6 +26,9 @@ after(() => rmSync(scratch, { recursive: true, force: true }));
 // Simulate the plugin cache: Claude Code installs a plugin by copying its folder.
 const pluginRoot = join(scratch, 'plugin-cache', CLI_NAME);
 cpSync(source, pluginRoot, { recursive: true, filter: (path) => !path.includes('node_modules') });
+// The factory plugin next to it, as the marketplace installs both: `stations` reads its templates
+// and runs its CLI.
+cpSync(join(source, '..', 'factory'), join(scratch, 'plugin-cache', 'factory'), { recursive: true, filter: (path) => !path.includes('node_modules') });
 const cwd = join(scratch, 'unrelated-cwd');
 mkdirSync(cwd);
 const config = join(scratch, 'config', 'factory-plugin-advisor');
@@ -39,6 +43,17 @@ env.npm_config_offline = 'true';
 env.FACTORY_PLUGIN_ADVISOR_CONFIG_DIR = config;
 env.HOME = join(scratch, 'home');
 env.PATH = `${ghBin}:${process.env.PATH ?? ''}`;
+// A repository whose factory line has history enough for two station suggestions (rules a and d).
+const lineRepo = join(scratch, 'line-repo');
+const perf = (id: string): JobSpec => ({ id, events: APPROVED(), followups: [['builder', 'The job list is slow.']], proof: 'PASS' });
+const unmet = (id: string): JobSpec => ({
+  id,
+  events: ['created', 'building', 'awaiting independent proof', 'proof passed', 'review round 1 opened', 'round 1: security -> approve', 'round 1: standards -> approve', 'round 1: behavior -> changes'],
+  blocking: { '1-behavior': '1. Criterion 2 is not met.' },
+  proof: 'PASS',
+});
+writeLine(join(lineRepo, 'factory'), [perf('001-a'), perf('002-b'), perf('003-c'), unmet('004-d'), unmet('005-e'), unmet('006-f')]);
+env.FACTORY_DIR = join(lineRepo, 'factory');
 
 function skillText(): string {
   return readFileSync(join(pluginRoot, SKILL), 'utf8');
@@ -70,19 +85,26 @@ test('the skill calls the CLI only through the shared npx invocation', () => {
   const commands = skillCommands();
   assert.ok(commands.length >= 8, `expected npx command lines in ${SKILL}`);
   for (const command of commands) assert.ok(command.startsWith(`${INVOCATION} `), command);
-  for (const command of ['record', 'list', 'show', 'suggest', 'file', 'dismiss', '--help']) {
+  for (const command of ['record', 'list', 'show', 'suggest', 'file', 'dismiss', '--help', 'stations', 'stations suggest', 'stations apply', 'stations dismiss']) {
     assert.ok(commands.some((c) => c.startsWith(`${INVOCATION} ${command}`)), `the skill runs ${command}`);
   }
   assert.equal(existsSync(join(pluginRoot, 'node_modules')), false);
 });
 
-test('allowed-tools pre-approves record, list, show, suggest and --help, and never file or dismiss', () => {
+test('allowed-tools pre-approves record, list, show, suggest, --help, stations and stations suggest, and never file, dismiss or stations apply', () => {
   const line = /^allowed-tools: (.*)$/m.exec(skillText())?.[1] ?? '';
-  const rules = [...line.matchAll(/Bash\((.*?):\*\)/g)].map((m) => m[1] ?? '');
-  assert.deepEqual(
-    rules,
-    ['record', 'list', 'show', 'suggest', '--help'].map((c) => `${INVOCATION} ${c}`),
-  );
+  const rules = [...line.matchAll(/Bash\(([^)]*)\)/g)].map((m) => m[1] ?? '');
+  assert.deepEqual(rules, [
+    ...['record', 'list', 'show', 'suggest', '--help'].map((c) => `${INVOCATION} ${c}:*`),
+    `${INVOCATION} stations --json`,
+    `${INVOCATION} stations suggest:*`,
+  ]);
+  // No rule matches a stations apply or dismiss line (a `:*` rule is a prefix, the others exact).
+  const allows = (cmd: string): boolean => rules.some((r) => (r.endsWith(':*') ? cmd.startsWith(r.slice(0, -2)) : cmd === r));
+  for (const cmd of ['stations apply 0123456789ab --confirm --json', 'stations dismiss 0123456789ab --json', 'stations --repo /x apply', 'file abcd --confirm', 'dismiss abcd']) {
+    assert.equal(allows(`${INVOCATION} ${cmd}`), false, cmd);
+  }
+  assert.equal(allows(`${INVOCATION} stations suggest --json`), true);
 });
 
 test('every skill command line runs from a fresh copy, in order, and exits 0', () => {
@@ -90,20 +112,27 @@ test('every skill command line runs from a fresh copy, in order, and exits 0', (
   const seed = sh(`${INVOCATION} record --plugin factory-docs --kind workaround --summary "factory-docs stale needed a second run after 7 changed files" --json`);
   assert.equal(seed.status, 0, seed.stderr);
   const signature: string = JSON.parse(seed.stdout).signature;
+  let ids: string[] = [];
   for (const line of skillCommands()) {
-    const command = fill(line, signature);
+    // A station suggestion's <id>: the first one is applied, the second dismissed.
+    const command = fill(line, signature).replace('<id>', line.includes(' stations dismiss ') ? (ids[1] ?? '<id>') : (ids[0] ?? '<id>'));
     const { status, stdout, stderr } = sh(command);
     assert.equal(status, 0, `${command}\nstderr: ${stderr}`);
     assert.notEqual(stdout, '', command);
     if (command.endsWith(' --help')) assert.match(stdout, new RegExp(`^Usage: ${CLI_NAME} `));
     if (command.includes(' --json')) {
       const value = JSON.parse(stdout);
-      if (command.includes(' suggest ')) assert.equal(value.suggestions[0]?.signature, signature);
+      if (command.includes(' suggest ') && !command.includes(' stations ')) assert.equal(value.suggestions[0]?.signature, signature);
       if (command.includes(' file ') && !command.includes('--confirm')) assert.equal(value.dryRun, true);
-      if (command.includes('--confirm')) assert.equal(value.url, ISSUE_URL);
+      if (command.includes(' file ') && command.includes('--confirm')) assert.equal(value.url, ISSUE_URL);
       if (command.includes(' dismiss ')) assert.equal(value.dismissed, true);
+      if (command.includes(' stations --json')) assert.equal(value.jobs, 6);
+      if (command.includes(' stations suggest ')) ids = value.suggestions.map((s: { id: string }) => s.id);
+      if (command.includes(' stations apply ')) assert.equal(value.applied, command.includes('--confirm'));
     }
   }
+  assert.equal(ids.length, 2);
+  assert.ok(existsSync(join(lineRepo, '.claude', 'agents', 'factory-reviewer-performance.md')));
   // The fake gh was called exactly once, by the --confirm line, with the body on stdin.
   const calls = readFileSync(join(scratch, 'gh-calls.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   assert.equal(calls.length, 1);

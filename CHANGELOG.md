@@ -23,6 +23,24 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   claim, recreating the worktree from the code remote. `factory remote status` and `factory remote
   push` (publish an existing local factory) round it off. Without `remote`, nothing changes. Station
   agents now say to stop and report when a remote factory refuses them, and never to run `claim`.
+- `factory-plugin-advisor` watches a repository's factory station agents. `stations [--repo
+  <path>] [--json]` reads the line's history (`factory/jobs/*/job.json`, `proof.md` and the review
+  files, old job.json files included) and reports, per station as `factory agents` resolves it
+  (project agent or shipped fallback): jobs handled, first-pass proof rate and proof failures, each
+  reviewer's approve and changes counts and how often its changes were followed by a rework it
+  approved, escalations and follow-ups. `stations suggest [--min <n>]` applies four documented,
+  deterministic rules (a theme no configured reviewer covers, the same proof failure reason, a
+  reviewer whose lens others keep catching or repeating, proofs that behavior then sends back for an
+  unmet criterion) and writes a redacted, masked draft per suggestion to the advisor's log dir: a
+  complete agent from the factory's template, or a unified diff against the current agent, plus a
+  paste-ready `/factory:run` line. Every drafted agent passes `factory agents check`. `stations
+  apply <id>` is a dry run; with `--confirm` it writes only `.claude/agents/factory-*.md` (and, for
+  a new reviewer, `factory.json` `reviewers`), backs up what it overwrites outside `factory/`, runs
+  `factory agents check` and rolls back on failure, refuses a stale, applied or dismissed draft, and
+  never commits. `stations dismiss <id>` drops a suggestion. The skill runs `stations` and
+  `stations suggest` (the only pre-approved ones) after a job ships or when asked how the line is
+  doing, and applies a draft only after a yes for that draft. These suggestions are never filed on
+  GitHub.
 
 ### Changed
 
