@@ -85,4 +85,4 @@ rules the checker defines. No test writes to the real repo.
 
 ## Versioning
 
-Every plugin in this marketplace carries the same version, the repository's. `CHANGELOG.md` lists what changed in each release.
+Every plugin in this marketplace carries the same version, the repository's. `CHANGELOG.md` lists what changed in each release. A patch release carries fixes only.

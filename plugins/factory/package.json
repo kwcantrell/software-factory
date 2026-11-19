@@ -1,6 +1,6 @@
 {
   "name": "factory",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "CLI for the Software Factory Claude Code plugin; its skills, agents and hook run it via npx and node.",
   "type": "module",

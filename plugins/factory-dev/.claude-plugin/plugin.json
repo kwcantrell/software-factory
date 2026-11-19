@@ -1,6 +1,6 @@
 {
   "name": "factory-dev",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Dev tooling for the software-factory repository: one check command that runs every CI gate, and the release tag/version check that prints a version's release notes.",
   "author": { "name": "Kalen Cantrell" },
   "homepage": "https://github.com/kwcantrell/software-factory",

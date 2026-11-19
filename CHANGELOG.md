@@ -6,6 +6,8 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-19
+
 ### Fixed
 
 - `factory-plugin-advisor` no longer masks the current username as a word when it is one of
@@ -175,6 +177,7 @@ intake -> build -> proof -> review -> ship -> done.
 - A dependency-free live dashboard (`dashboard/index.html`) and `factory stats` line metrics.
 - Per-job builder model choice; the verifier runs on Sonnet.
 
-[Unreleased]: https://github.com/kwcantrell/software-factory/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/kwcantrell/software-factory/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/kwcantrell/software-factory/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/kwcantrell/software-factory/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/kwcantrell/software-factory/releases/tag/v0.2.0
