@@ -1,6 +1,6 @@
 {
   "name": "factory-plugin-builder",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Builds software-factory plugins the convention's way: scaffolds a plugin from the template, checks plugins against the CLI convention with a fix for every finding, and runs a plugin's full verification gate.",
   "author": { "name": "Kalen Cantrell" },
   "homepage": "https://github.com/kwcantrell/software-factory",

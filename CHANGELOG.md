@@ -6,6 +6,11 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-19
+
+Station agents tailored to your repository are new in this release: run `/factory:agents` to
+make them. The shipped agents stay the fallback for any station without one.
+
 ### Added
 
 - Station agents a project owns. The `factory` plugin ships a template per station kind in
@@ -25,8 +30,6 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   `factory agents` shows the reviewer as `missing` and names the file to move.
 - `factory-plugin-advisor` treats `agents`, the new `factory` subcommand, as a word it writes
   itself, so it is not masked for a user named `agents`.
-
-## [0.3.1] - 2026-11-19
 
 ### Fixed
 
@@ -197,7 +200,7 @@ intake -> build -> proof -> review -> ship -> done.
 - A dependency-free live dashboard (`dashboard/index.html`) and `factory stats` line metrics.
 - Per-job builder model choice; the verifier runs on Sonnet.
 
-[Unreleased]: https://github.com/kwcantrell/software-factory/compare/v0.3.1...HEAD
-[0.3.1]: https://github.com/kwcantrell/software-factory/compare/v0.3.0...v0.3.1
+[Unreleased]: https://github.com/kwcantrell/software-factory/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/kwcantrell/software-factory/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/kwcantrell/software-factory/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/kwcantrell/software-factory/releases/tag/v0.2.0

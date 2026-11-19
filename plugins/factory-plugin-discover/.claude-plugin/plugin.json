@@ -1,6 +1,6 @@
 {
   "name": "factory-plugin-discover",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Finds the installed plugin or skill that fits a software-factory task, offers to install a fitting software-factory marketplace plugin that is not installed yet, and points at factory-plugin-advisor when nothing fits: a local, deterministic catalog and matcher, a mode setting and a guarded install, plus a prompt hook that hints at it.",
   "author": {
     "name": "Kalen Cantrell"
