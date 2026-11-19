@@ -45,6 +45,7 @@ export const FACTORY_COMMANDS = [
   'config',
   'note',
   'followup',
+  'agents',
   'path',
   'status',
   'stats',

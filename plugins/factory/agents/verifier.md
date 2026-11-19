@@ -15,6 +15,8 @@ Your prompt gives you a job id, a **job dir** and a **worktree**.
 
 **The `factory` CLI.** Wherever this prompt says `factory <command>`, run exactly `npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory <command>`, from any directory, with no install or build step. Never run a bare `factory`.
 
+**Job state.** Never edit `job.json`: the `factory` CLI is its only writer and the only way a job changes stage.
+
 ## Rules
 
 - Do not modify the code under test. No fixes, no "small tweaks so it passes". You may write throwaway scripts outside the worktree, or evidence files under `<job dir>/evidence/`.

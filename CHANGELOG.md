@@ -6,6 +6,26 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added
+
+- Station agents a project owns. The `factory` plugin ships a template per station kind in
+  `templates/agents/` (`builder.md`, `verifier.md`, and `reviewer.md` for any lens), with the line's
+  non-negotiables marked as fixed sections and the project-specific ones (stack, checks,
+  conventions, the lens) to fill in. `factory agents new <station> [--force]` writes one to
+  `.claude/agents/factory-<station>.md`; `factory agents check [--json]` validates every
+  `.claude/agents/factory-*.md` (name, fixed sections, the npx form, recording its own result, no
+  pre-approved `merge`, `approve` or `rework`) with one line per problem; and `factory agents
+  [--json]` prints, per station, the agent `/factory:run` launches: the project's own when it
+  passes `check`, else the shipped `factory:<station>`, or `missing` for a configured reviewer with
+  neither. `/factory:run` now takes each station's agent from `factory agents` and gives every
+  station the factory plugin root, and the new `/factory:agents` skill walks Claude through
+  making a repository's agents. With no project agents the line runs on the shipped agents as
+  before; each of them now also says never to edit `job.json`, the one fixed section they lacked.
+  A lens agent kept under the old name `.claude/agents/reviewer-<name>.md` is no longer launched:
+  `factory agents` shows the reviewer as `missing` and names the file to move.
+- `factory-plugin-advisor` treats `agents`, the new `factory` subcommand, as a word it writes
+  itself, so it is not masked for a user named `agents`.
+
 ## [0.3.1] - 2026-11-19
 
 ### Fixed

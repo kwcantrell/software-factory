@@ -78,6 +78,7 @@ git checkout.
 /factory:run add cursor pagination to GET /orders   # one request, one or more jobs
 /factory:run                                        # continue jobs in progress
 /factory:dashboard                                  # live board
+/factory:agents                                     # make this repo's own station agents
 /factory:approve 3                                  # approve job 3's spec (only with the spec gate on)
 /factory:ship 2                                     # merge job 2 (asks you to confirm)
 /factory:ship 2 reject not needed after all
@@ -115,6 +116,9 @@ or, equivalently, `node "$PLUGIN/src/cli.ts" status`. The examples below write i
 | `factory config` | print the effective configuration (`factory.json` over defaults) |
 | `factory note` | set the job's activity line |
 | `factory followup` | record, list and resolve follow-ups (see below) |
+| `factory agents` | the agent `/factory:run` launches for each station: the project's own or the shipped fallback (see [Station agents](#station-agents)) |
+| `factory agents new` | write a station's template to `.claude/agents/factory-<station>.md` (`--force` to overwrite) |
+| `factory agents check` | validate every `.claude/agents/factory-*.md` against its template |
 | `factory path` | print the job dir (or `--worktree`) |
 | `factory status` | list jobs, or show one |
 | `factory stats` | line metrics: proof and review pass rates, rounds, time, escalations |
@@ -137,12 +141,24 @@ Optional. Put a `factory.json` at the repository root and commit it; anything yo
 }
 ```
 
-- **`reviewers`** - who reviews each round. The plugin ships the three above. To add a lens (say `"performance"`), add the name here and define a `reviewer-performance` agent in the project's `.claude/agents/`; copy one of the plugin's `agents/reviewer-*.md` as a start.
+- **`reviewers`** - who reviews each round. The plugin ships the three above. To add a lens (say `"performance"`), add the name here and make its agent with `factory agents new reviewer-performance` (or `/factory:agents`); see [Station agents](#station-agents). A lens agent made before station agents existed, `.claude/agents/reviewer-<name>.md`, is no longer used: `factory agents` names it, and its lens text moves into the new file.
 - **`max_review_rounds`**, **`max_proof_attempts`** - how many tries before a job is flagged needs-human.
 - **`spec_gate`** - when true, every job stops after intake until you approve its `task.md` with `/factory:approve <id>`. Off by default; you can also ask for it per request ("...and let me review the spec first").
 - **`specs_dir`** - the repo-relative directory where the project keeps living behavior specs (say `"docs/specs"`), or `null` if it keeps none. When set, intake reads the specs a change touches, lists them in `task.md`, and gives each one whose behavior changes an acceptance criterion to update it in the same job. Unset by default.
 
 `factory config` prints the effective settings. Unknown keys and bad values are refused, so a typo cannot silently change the line.
+
+## Station agents
+
+Each station is an agent: the builder, the verifier and one reviewer per lens. The plugin ships one for each (`factory:builder`, `factory:verifier`, `factory:reviewer-security`, `-standards`, `-behavior`), the same for every project. A project can have its own instead, tailored to its stack, checks and conventions:
+
+- **Templates.** `plugins/factory/templates/agents/` holds one template per station kind: `builder.md`, `verifier.md` and `reviewer.md`, a generic lens template (the three shipped lenses come out of it with their own lens text). Each marks the line's non-negotiables as **fixed** sections, `<!-- fixed:<id> -->` ... `<!-- /fixed -->`: the CLI only through the npx form, handoff files only in the absolute job dir (deleting a stray copy only if it is the station's own), recording its own result (`built`, `proof`, `verdict`) and follow-ups, never editing `job.json`, and the reviewer's single lens. The **fill** sections, `<!-- fill:<id> ... -->` ... `<!-- /fill -->`, are the project's: its stack, how to run its checks, its conventions and, for a reviewer, what the lens looks for here.
+- **Project agents.** A project agent for a station is `.claude/agents/factory-<station>.md` in the main checkout, where station is `builder`, `verifier` or `reviewer-<name>`, with frontmatter `name` equal to the file name (`factory-reviewer-security`). It is committed with the repo. `factory agents new <station>` writes one from its template with the name filled in (refusing to overwrite without `--force`); for a reviewer not in `factory.json` it prints the `reviewers` line to set, and does not edit `factory.json`.
+- **Validation.** `factory agents check` validates every `.claude/agents/factory-*.md` and exits 1 with one line per problem (file, what, fix): the frontmatter `name` matches the file and there is a `description`; every fixed section of the template is present (compared after removing HTML comments and collapsing whitespace, so re-wrapping and dropping the markers are fine and any change of wording is not); no `TODO:` placeholder is left; the CLI is called only through the npx form; the agent records its own result with the right command (`factory built`, `factory proof <job id> pass|fail`, `factory verdict <job id> <name> approve|changes`) and its follow-ups `--by` its own name; and nothing pre-approves or runs `factory merge`, `approve` or `rework` (no such `Bash(...)` rule and no rule wide enough to cover them, wherever it sits in the frontmatter and in any YAML form, with `*` and a trailing `:*` read as wildcards; no `permissionMode` other than `default`, `acceptEdits`, `plan` or `dontAsk`; no `hooks`). Frontmatter values are compared with surrounding quotes removed. The body scan for `factory merge` and the like is a lint: the PreToolUse hook is what enforces the gate. The shipped agents pass the same rules, so the fallback is never weaker than a generated agent.
+- **Resolution and fallback.** `factory agents [--json]` prints, for the builder, the verifier and each reviewer in `factory.json`, the agent `/factory:run` launches and whether it is project-owned or the shipped fallback: the project agent when its file exists and passes `check`, otherwise the shipped `factory:<station>` (and it says when a project agent was skipped for failing `check`), or `missing` for a configured reviewer with neither, which `/factory:run` escalates. With no project agents the line runs exactly as before, on the shipped agents.
+- **`/factory:agents`** walks Claude through making or refreshing them: read the repository (languages, test, typecheck and lint commands, the check script, CLAUDE.md conventions, any `specs_dir`), run `factory agents new` for each station, fill in only the fill sections, run `factory agents check` until it is clean, then show you the result and ask before committing. It pre-approves only `factory agents` and `factory agents check`. Claude Code loads `.claude/agents/` when a session starts, so a new agent is used from the next session.
+
+A project agent has no `${CLAUDE_PLUGIN_ROOT}` of its own, so `/factory:run` gives every station the factory plugin root in its prompt, and the templates say to read `${CLAUDE_PLUGIN_ROOT}` as that path.
 
 ## Dashboard
 
@@ -193,11 +209,13 @@ plugins/factory/                           the plugin
   skills/ship                              human merge gate (user-invoked only)
   skills/dashboard                         start the dashboard server
   skills/upgrade                           move a repo from an older factory plugin (factory upgrade)
-  agents/                                  builder, verifier, reviewer-{security,standards,behavior}
-  src/                                     the CLI: state machine, gates, dashboard server
+  skills/agents                            make the project's own station agents (factory agents)
+  agents/                                  builder, verifier, reviewer-{security,standards,behavior}: the shipped fallback
+  templates/agents/                        builder, verifier and reviewer templates for project agents
+  src/                                     the CLI: state machine, gates, station agents, dashboard server
   hooks/hooks.json, src/human-gate.ts      human-gate hook (merge, spec approval, rework)
   dashboard/index.html                     the dashboard
-  test/                                    node:test suites (CLI, npx, hook, dashboard, compatibility, upgrade)
+  test/                                    node:test suites (CLI, npx, hook, dashboard, compatibility, upgrade, agents)
 plugins/factory-plugin-builder/            builds plugins for this marketplace: new, check (the CLI convention), verify
 plugins/factory-dev/                       develops this repo: check (every CI gate), release (tag/version check, notes)
 plugins/factory-docs/                      keeps this repo's docs in sync with its code: which, stale, lint, gate

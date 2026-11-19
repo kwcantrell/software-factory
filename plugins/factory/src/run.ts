@@ -1,6 +1,7 @@
 // Argument parsing, usage text and exit codes for the `factory` CLI. The commands themselves are in
 // factory.ts. Parsing follows the original CLI: options may come anywhere, long options may be
 // abbreviated to a unique prefix, and a usage error exits 2 with the usage line on stderr.
+import { cmdAgents, cmdAgentsCheck, cmdAgentsNew } from './agents.ts';
 import { serveDashboard } from './dashboard.ts';
 import {
   cmdApprove,
@@ -124,6 +125,22 @@ const FOLLOWUP: Spec[] = [
   ),
 ];
 
+const AGENTS: Spec[] = [
+  {
+    name: 'new',
+    help: "write a station's template to .claude/agents/factory-<station>.md",
+    positionals: [{ name: 'station', help: 'builder, verifier or reviewer-<name>' }],
+    options: [{ name: 'force', help: 'overwrite an existing file' }],
+    fn: cmdAgentsNew,
+  },
+  {
+    name: 'check',
+    help: 'validate every .claude/agents/factory-*.md against its template',
+    options: [{ name: 'json' }],
+    fn: cmdAgentsCheck,
+  },
+];
+
 export const COMMANDS: Spec[] = [
   { name: 'init', help: 'create ./factory and install the dashboard', fn: cmdInit },
   { name: 'new', help: 'intake: open a job', positionals: [{ name: 'title', nargs: '+' }], fn: cmdNew },
@@ -192,6 +209,13 @@ export const COMMANDS: Spec[] = [
     name: 'followup',
     help: 'record, list and resolve follow-ups (later work a job turned up)',
     sub: FOLLOWUP,
+  },
+  {
+    name: 'agents',
+    help: 'the agent /factory:run launches for each station: project or shipped fallback',
+    options: [{ name: 'json' }],
+    fn: cmdAgents,
+    sub: AGENTS,
   },
   {
     name: 'path',
@@ -280,7 +304,10 @@ function optionUsage(o: Option): string {
 function usageLine(prog: string, spec: Spec): string {
   const parts = [`usage: ${prog} [-h]`];
   for (const o of spec.options ?? []) parts.push(optionUsage(o));
-  if (spec.sub) parts.push(`{${spec.sub.map((x) => x.name).join(',')}} ...`);
+  if (spec.sub) {
+    const sub = `{${spec.sub.map((x) => x.name).join(',')}} ...`;
+    parts.push(spec.fn ? `[${sub}]` : sub);
+  }
   for (const p of spec.positionals ?? []) parts.push(positionalUsage(p));
   return parts.join(' ');
 }
@@ -407,7 +434,8 @@ function parseCommand(prog: string, spec: Spec, argv: string[]): Parsed {
     }
   }
 
-  if (spec.sub) fail('the following arguments are required: action');
+  // A command with subcommands needs one, unless it runs on its own too (`factory agents`).
+  if (spec.sub && !spec.fn) fail('the following arguments are required: action');
 
   const specs = spec.positionals ?? [];
   const minimum = (p: Positional): number => (p.nargs === '?' || p.nargs === '*' ? 0 : 1);

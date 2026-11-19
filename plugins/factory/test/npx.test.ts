@@ -32,7 +32,7 @@ function sh(command: string, cwd: string, extra: NodeJS.ProcessEnv = {}): { stat
 
 const COMMANDS = [
   'init', 'new', 'start', 'spec', 'approve', 'built', 'proof', 'round', 'verdict', 'human', 'resume', 'merge',
-  'rework', 'close', 'config', 'note', 'followup', 'path', 'status', 'stats', 'upgrade', 'dashboard',
+  'rework', 'close', 'config', 'note', 'followup', 'agents', 'path', 'status', 'stats', 'upgrade', 'dashboard',
 ];
 
 test('the copy has no node_modules and the package has no dependencies', () => {
@@ -102,7 +102,7 @@ async function freePort(): Promise<number> {
 
 test('every skill command line runs through npx from a fresh copy', async () => {
   const commands = skillCommands();
-  assert.deepEqual([...new Set(commands.map((c) => c.skill))].sort(), ['approve', 'dashboard', 'run', 'ship', 'upgrade']);
+  assert.deepEqual([...new Set(commands.map((c) => c.skill))].sort(), ['agents', 'approve', 'dashboard', 'run', 'ship', 'upgrade']);
   const repo = join(scratch, 'skill-lines');
   mkdirSync(repo);
   for (const args of [['init', '-q', '-b', 'main'], ['commit', '-q', '--allow-empty', '-m', 'initial']]) {

@@ -12,6 +12,8 @@ Your prompt gives you a job id, a **job dir** (handoff files) and a **worktree**
 
 **The `factory` CLI.** Wherever this prompt says `factory <command>`, run exactly `npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory <command>`, from any directory, with no install or build step. Never run a bare `factory`.
 
+**Job state.** Never edit `job.json`: the `factory` CLI is its only writer and the only way a job changes stage.
+
 ## Rules
 
 - Work only inside the worktree. Never edit the main checkout, never touch another job's worktree, never switch branches, never push or merge.
