@@ -71,7 +71,7 @@ test('the human-gate skills stay user-only', () => {
   }
 });
 
-test('every station writes its handoff file only to the job dir and deletes its own stray copy', () => {
+test('every station writes its handoff file only to the job dir and deletes a stray copy only if it wrote it', () => {
   const handoff: Record<string, [string, string]> = {
     'builder.md': ['build.md', 'built'],
     'verifier.md': ['proof.md', 'proof'],
@@ -88,8 +88,15 @@ test('every station writes its handoff file only to the job dir and deletes its 
       `${agent} does not say to write only to the absolute job dir`,
     );
     assert.ok(
-      text.includes(`If \`factory ${cmd}\` refuses because of a stray copy of \`${name}\` outside the job dir, delete your own stray copy and retry.`),
-      `${agent} does not say to delete a stray copy and retry`,
+      text.includes(
+        `If \`factory ${cmd}\` refuses because of a stray copy of \`${name}\` outside the job dir, delete that copy and retry only if you wrote it in this job, that is, its content matches your own \`${name}\` in the job dir (the refusal says whether the two are byte-identical).`,
+      ),
+      `${agent} does not say to delete a stray copy only when it matches the job-dir copy`,
     );
+    assert.ok(
+      text.includes('Otherwise do not delete it: stop and report the refusal to the supervisor.'),
+      `${agent} does not say to stop and report a stray copy it did not write`,
+    );
+    assert.ok(!text.includes('delete your own stray copy and retry'), `${agent} still says to delete any stray copy`);
   }
 });

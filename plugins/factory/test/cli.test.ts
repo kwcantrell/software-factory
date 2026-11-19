@@ -415,6 +415,14 @@ for (const cmd of ['built', 'proof', 'verdict'] as const) {
       assert.match(p.stderr, /refused/);
       assert.ok(p.stderr.includes(stray), `names the stray file's full path: ${p.stderr}`);
       assert.match(p.stderr, /move or delete it/);
+      const own = join(r.jobDir(id), name);
+      assert.ok(p.stderr.includes(`is byte-identical to ${own}`), `says the stray copy matches the job dir's: ${p.stderr}`);
+      assert.equal(readFileSync(jobJson, 'utf8'), before, 'job.json is unchanged on refusal');
+      // A stray file whose content differs is reported as such.
+      writeFileSync(stray, '# someone else\'s notes\n');
+      const q = r.factory(args);
+      assert.equal(q.status, 1, q.stdout + q.stderr);
+      assert.ok(q.stderr.includes(`differs from ${own}`), `says the stray copy differs: ${q.stderr}`);
       assert.equal(readFileSync(jobJson, 'utf8'), before, 'job.json is unchanged on refusal');
       // Deleting the stray copy is all it takes.
       unlinkSync(stray);

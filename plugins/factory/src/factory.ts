@@ -452,8 +452,16 @@ function requireNoStray(root: string, job: Job, name: string): void {
     if (!existsSync(path)) continue;
     const tracked = run('git', ['--literal-pathspecs', 'ls-files', '--error-unmatch', '--', name], dir);
     if (tracked.status === 0) continue;
+    const own = join(root, 'jobs', job.id, name);
+    let same = false;
+    try {
+      same = readFileSync(path).equals(readFileSync(own));
+    } catch {
+      // A directory or unreadable file is never a copy of the job's handoff file.
+    }
     throw new Refused(
-      `stray ${path} is an untracked copy of a handoff file that belongs only in ${join(root, 'jobs', job.id)} - move or delete it, then retry`,
+      `stray ${path} is an untracked copy of a handoff file that belongs only in ${join(root, 'jobs', job.id)} ` +
+        `(it ${same ? 'is byte-identical to' : 'differs from'} ${own}) - move or delete it, then retry`,
     );
   }
 }
