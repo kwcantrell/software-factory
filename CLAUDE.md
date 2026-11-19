@@ -32,6 +32,7 @@ build step and no runtime dependency.
 | `plugins/factory/package.json` | `"bin": {"factory": "src/cli.ts"}`, `type: module`, private, no `dependencies` |
 | `plugins/factory/src/cli.ts`, `run.ts` | CLI entry, and argument parsing, usage text and exit codes |
 | `plugins/factory/src/factory.ts` | The line's state machine and gates: the only writer of `job.json` |
+| `plugins/factory/src/upgrade.ts` | `factory upgrade`: moves a repo from an older factory (settings, `factory/` dir, manual steps); dry run unless `--apply` |
 | `plugins/factory/src/dashboard.ts` | `factory dashboard`: serves the factory dir on 127.0.0.1 |
 | `plugins/factory/src/pyfmt.ts` | Output formatting kept byte-identical to the original CLI (JSON, rounding) |
 | `plugins/factory/src/human-gate.ts`, `gate.ts` | `PreToolUse` Bash hook that turns human-only commands into permission prompts |
@@ -39,6 +40,7 @@ build step and no runtime dependency.
 | `plugins/factory/skills/run/SKILL.md` | The supervisor (`/factory:run`) |
 | `plugins/factory/skills/approve`, `skills/ship` | Human-only gates (`disable-model-invocation: true`) |
 | `plugins/factory/skills/dashboard` | Starts the dashboard server |
+| `plugins/factory/skills/upgrade` | `/factory:upgrade`: runs the `factory upgrade` dry run, asks before `--apply` (and again before `--scope user`) |
 | `plugins/factory/agents/*.md` | `builder`, `verifier`, `reviewer-security`, `reviewer-standards`, `reviewer-behavior` |
 | `plugins/factory/dashboard/index.html` | Dependency-free dashboard; polls `jobs/*/job.json` through the server's directory listing |
 | `plugins/factory/test/*.test.ts` | `node:test` suites; `test/fixtures/` holds job records written by the original CLI |
@@ -66,6 +68,7 @@ claude plugin validate .                           # marketplace manifest
 claude plugin validate plugins/<name>              # one plugin (also templates/plugin)
 node plugins/factory-dev/src/cli.ts release v0.2.0 # would this tag release? prints its notes
 node plugins/factory/src/cli.ts --help             # every CLI command
+node plugins/factory/src/cli.ts upgrade            # dry run: what moving this repo from an older factory would change
 ```
 
 `factory-dev check` needs `git`, Node.js 22.18+ with `npm ci` done, and the `claude` CLI; without

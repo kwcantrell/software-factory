@@ -1,0 +1,93 @@
+{
+  "id": "004-done-job",
+  "title": "Done job",
+  "stage": "done",
+  "status": "merged",
+  "needs_human": null,
+  "activity": "merged into main",
+  "spec": null,
+  "spec_sha": null,
+  "branch": "factory/004-done-job",
+  "base": "<BASE>",
+  "base_branch": "main",
+  "worktree": null,
+  "proof_attempts": 0,
+  "rounds": [
+    {
+      "n": 1,
+      "reviewers": {
+        "security": {
+          "verdict": "approve",
+          "at": "2026-11-19T07:43:05Z"
+        },
+        "standards": {
+          "verdict": "approve",
+          "at": "2026-11-19T07:43:05Z"
+        },
+        "behavior": {
+          "verdict": "approve",
+          "at": "2026-11-19T07:43:05Z"
+        }
+      }
+    }
+  ],
+  "created": "2026-11-19T07:43:04Z",
+  "history": [
+    {
+      "at": "2026-11-19T07:43:04Z",
+      "stage": "intake",
+      "event": "created"
+    },
+    {
+      "at": "2026-11-19T07:43:05Z",
+      "stage": "build",
+      "event": "building"
+    },
+    {
+      "at": "2026-11-19T07:43:05Z",
+      "stage": "proof",
+      "event": "awaiting independent proof"
+    },
+    {
+      "at": "2026-11-19T07:43:05Z",
+      "stage": "review",
+      "event": "proof passed"
+    },
+    {
+      "at": "2026-11-19T07:43:05Z",
+      "stage": "review",
+      "event": "review round 1 opened"
+    },
+    {
+      "at": "2026-11-19T07:43:05Z",
+      "stage": "review",
+      "event": "round 1: security -> approve"
+    },
+    {
+      "at": "2026-11-19T07:43:05Z",
+      "stage": "review",
+      "event": "round 1: standards -> approve"
+    },
+    {
+      "at": "2026-11-19T07:43:05Z",
+      "stage": "review",
+      "event": "round 1: behavior -> approve"
+    },
+    {
+      "at": "2026-11-19T07:43:05Z",
+      "stage": "ship",
+      "event": "approved in round 1"
+    },
+    {
+      "at": "2026-11-19T07:43:05Z",
+      "stage": "ship",
+      "event": "needs human: approved by every reviewer - awaiting your merge"
+    },
+    {
+      "at": "2026-11-19T07:43:05Z",
+      "stage": "done",
+      "event": "merged into main"
+    }
+  ],
+  "updated": "2026-11-19T07:43:05Z"
+}

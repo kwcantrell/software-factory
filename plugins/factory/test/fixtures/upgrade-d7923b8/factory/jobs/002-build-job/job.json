@@ -1,0 +1,52 @@
+{
+  "id": "002-build-job",
+  "title": "Build job",
+  "stage": "build",
+  "status": "active",
+  "needs_human": null,
+  "activity": "builder working",
+  "spec": null,
+  "spec_sha": null,
+  "branch": "factory/002-build-job",
+  "base": "<BASE>",
+  "base_branch": "main",
+  "worktree": "<FACTORY>/worktrees/002-build-job",
+  "proof_attempts": 0,
+  "rounds": [],
+  "followups": [
+    {
+      "n": 1,
+      "text": "\u00dcn\u00efcode follow-up",
+      "by": "builder",
+      "stage": "build",
+      "at": "2026-11-19T07:43:07Z",
+      "status": "open",
+      "resolution": null,
+      "resolved_at": null
+    }
+  ],
+  "created": "2026-11-19T07:43:06Z",
+  "history": [
+    {
+      "at": "2026-11-19T07:43:06Z",
+      "stage": "intake",
+      "event": "created"
+    },
+    {
+      "at": "2026-11-19T07:43:06Z",
+      "stage": "build",
+      "event": "building"
+    },
+    {
+      "at": "2026-11-19T07:43:06Z",
+      "stage": "build",
+      "event": "builder working"
+    },
+    {
+      "at": "2026-11-19T07:43:07Z",
+      "stage": "build",
+      "event": "follow-up 1 added by builder"
+    }
+  ],
+  "updated": "2026-11-19T07:43:07Z"
+}

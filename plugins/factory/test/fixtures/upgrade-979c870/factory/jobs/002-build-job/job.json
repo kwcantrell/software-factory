@@ -1,0 +1,35 @@
+{
+  "id": "002-build-job",
+  "title": "Build job",
+  "stage": "build",
+  "status": "active",
+  "needs_human": null,
+  "activity": "builder working",
+  "spec": null,
+  "spec_sha": null,
+  "branch": "factory/002-build-job",
+  "base": "<BASE>",
+  "base_branch": "main",
+  "worktree": "<FACTORY>/worktrees/002-build-job",
+  "proof_attempts": 0,
+  "rounds": [],
+  "created": "2026-11-19T07:43:04Z",
+  "history": [
+    {
+      "at": "2026-11-19T07:43:04Z",
+      "stage": "intake",
+      "event": "created"
+    },
+    {
+      "at": "2026-11-19T07:43:04Z",
+      "stage": "build",
+      "event": "building"
+    },
+    {
+      "at": "2026-11-19T07:43:05Z",
+      "stage": "build",
+      "event": "builder working"
+    }
+  ],
+  "updated": "2026-11-19T07:43:05Z"
+}

@@ -1,0 +1,105 @@
+{
+  "id": "003-ship-job",
+  "title": "Ship job",
+  "stage": "ship",
+  "status": "needs-human",
+  "needs_human": "approved by every reviewer - awaiting your merge",
+  "activity": "needs human: approved by every reviewer - awaiting your merge",
+  "spec": null,
+  "spec_sha": null,
+  "branch": "factory/003-ship-job",
+  "base": "<BASE>",
+  "base_branch": "main",
+  "worktree": "<FACTORY>/worktrees/003-ship-job",
+  "proof_attempts": 0,
+  "rounds": [
+    {
+      "n": 1,
+      "reviewers": {
+        "security": {
+          "verdict": "approve",
+          "at": "2026-11-19T07:43:07Z"
+        },
+        "standards": {
+          "verdict": "approve",
+          "at": "2026-11-19T07:43:07Z"
+        },
+        "behavior": {
+          "verdict": "approve",
+          "at": "2026-11-19T07:43:07Z"
+        }
+      }
+    }
+  ],
+  "followups": [
+    {
+      "n": 1,
+      "text": "a later fix",
+      "by": "security",
+      "stage": "ship",
+      "at": "2026-11-19T07:43:07Z",
+      "status": "open",
+      "resolution": null,
+      "resolved_at": null
+    }
+  ],
+  "created": "2026-11-19T07:43:06Z",
+  "history": [
+    {
+      "at": "2026-11-19T07:43:06Z",
+      "stage": "intake",
+      "event": "created"
+    },
+    {
+      "at": "2026-11-19T07:43:06Z",
+      "stage": "build",
+      "event": "building"
+    },
+    {
+      "at": "2026-11-19T07:43:06Z",
+      "stage": "proof",
+      "event": "awaiting independent proof"
+    },
+    {
+      "at": "2026-11-19T07:43:06Z",
+      "stage": "review",
+      "event": "proof passed"
+    },
+    {
+      "at": "2026-11-19T07:43:07Z",
+      "stage": "review",
+      "event": "review round 1 opened"
+    },
+    {
+      "at": "2026-11-19T07:43:07Z",
+      "stage": "review",
+      "event": "round 1: security -> approve"
+    },
+    {
+      "at": "2026-11-19T07:43:07Z",
+      "stage": "review",
+      "event": "round 1: standards -> approve"
+    },
+    {
+      "at": "2026-11-19T07:43:07Z",
+      "stage": "review",
+      "event": "round 1: behavior -> approve"
+    },
+    {
+      "at": "2026-11-19T07:43:07Z",
+      "stage": "ship",
+      "event": "approved in round 1"
+    },
+    {
+      "at": "2026-11-19T07:43:07Z",
+      "stage": "ship",
+      "event": "needs human: approved by every reviewer - awaiting your merge"
+    },
+    {
+      "at": "2026-11-19T07:43:07Z",
+      "stage": "ship",
+      "event": "follow-up 1 added by security"
+    }
+  ],
+  "updated": "2026-11-19T07:43:07Z"
+}

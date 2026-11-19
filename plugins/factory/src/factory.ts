@@ -144,9 +144,10 @@ function resolveReal(p: string): string {
   }
 }
 
-export function factoryDir(): string {
+/** FACTORY_DIR if set, else <main checkout>/factory (of the checkout holding the cwd, or `main`). */
+export function factoryDir(main?: string): string {
   const env = process.env.FACTORY_DIR;
-  return env ? resolveReal(env) : join(mainCheckout(), 'factory');
+  return env ? resolveReal(env) : join(main ?? mainCheckout(), 'factory');
 }
 
 /** Create the factory directory. Idempotent; refreshes the dashboard. */
@@ -191,10 +192,43 @@ function parseJson(text: string): unknown {
   } as (key: string, value: unknown) => unknown);
 }
 
-export function loadConfig(root: string): Config {
-  const cfg: Config = { ...DEFAULTS, reviewers: [...DEFAULTS.reviewers] };
-  const path = configPath(root);
-  if (!existsSync(path)) return cfg;
+/** Check one factory.json key and its value; throws Refused saying what is wrong and how to fix it. */
+function checkConfigKey(path: string, key: string, value: unknown): void {
+  const known = Object.keys(DEFAULTS);
+  if (!known.includes(key)) {
+    throw new Refused(`${path}: unknown key '${key}' (known: ${known.join(', ')})`);
+  }
+  if (key === 'reviewers') {
+    const ok =
+      Array.isArray(value) &&
+      value.length > 0 &&
+      new Set(value).size === value.length &&
+      value.every((r) => typeof r === 'string' && NAME.test(r));
+    if (!ok) {
+      throw new Refused(
+        `${path}: 'reviewers' must be a non-empty list of unique lowercase names like "security"`,
+      );
+    }
+  } else if (key === 'spec_gate') {
+    if (typeof value !== 'boolean') throw new Refused(`${path}: 'spec_gate' must be true or false`);
+  } else if (key === 'specs_dir') {
+    const ok =
+      value === null ||
+      (typeof value === 'string' &&
+        value.trim() !== '' &&
+        !value.startsWith('/') &&
+        !value.split('/').includes('..'));
+    if (!ok) {
+      throw new Refused(`${path}: 'specs_dir' must be null or a repo-relative directory like "docs/specs"`);
+    }
+  } else if (!(typeof value === 'number' && Number.isInteger(value) && value >= 1)) {
+    throw new Refused(`${path}: '${key}' must be a whole number of at least 1`);
+  }
+}
+
+/** factory.json parsed (null when there is none); throws Refused when it is not a JSON object. */
+function readConfig(path: string): Record<string, unknown> | null {
+  if (!existsSync(path)) return null;
   let user: unknown;
   try {
     user = parseJson(readFileSync(path, 'utf8'));
@@ -204,40 +238,40 @@ export function loadConfig(root: string): Config {
   if (typeof user !== 'object' || user === null || Array.isArray(user) || user instanceof JsonFloat) {
     throw new Refused(`${path} must be a JSON object`);
   }
-  const known = Object.keys(DEFAULTS);
-  for (const [key, value] of Object.entries(user as Record<string, unknown>)) {
-    if (!known.includes(key)) {
-      throw new Refused(`${path}: unknown key '${key}' (known: ${known.join(', ')})`);
-    }
-    if (key === 'reviewers') {
-      const ok =
-        Array.isArray(value) &&
-        value.length > 0 &&
-        new Set(value).size === value.length &&
-        value.every((r) => typeof r === 'string' && NAME.test(r));
-      if (!ok) {
-        throw new Refused(
-          `${path}: 'reviewers' must be a non-empty list of unique lowercase names like "security"`,
-        );
-      }
-    } else if (key === 'spec_gate') {
-      if (typeof value !== 'boolean') throw new Refused(`${path}: 'spec_gate' must be true or false`);
-    } else if (key === 'specs_dir') {
-      const ok =
-        value === null ||
-        (typeof value === 'string' &&
-          value.trim() !== '' &&
-          !value.startsWith('/') &&
-          !value.split('/').includes('..'));
-      if (!ok) {
-        throw new Refused(`${path}: 'specs_dir' must be null or a repo-relative directory like "docs/specs"`);
-      }
-    } else if (!(typeof value === 'number' && Number.isInteger(value) && value >= 1)) {
-      throw new Refused(`${path}: '${key}' must be a whole number of at least 1`);
-    }
+  return user as Record<string, unknown>;
+}
+
+export function loadConfig(root: string): Config {
+  const cfg: Config = { ...DEFAULTS, reviewers: [...DEFAULTS.reviewers] };
+  const path = configPath(root);
+  const user = readConfig(path);
+  if (user === null) return cfg;
+  for (const [key, value] of Object.entries(user)) {
+    checkConfigKey(path, key, value);
     (cfg as unknown as Record<string, unknown>)[key] = value;
   }
   return cfg;
+}
+
+/** Every reason loadConfig would refuse factory.json, one per key (empty when it would load). */
+export function configProblems(root: string): string[] {
+  const path = configPath(root);
+  let user: Record<string, unknown> | null;
+  try {
+    user = readConfig(path);
+  } catch (error) {
+    return [(error as Error).message];
+  }
+  const problems: string[] = [];
+  for (const [key, value] of Object.entries(user ?? {})) {
+    try {
+      checkConfigKey(path, key, value);
+    } catch (error) {
+      if (!(error instanceof Refused)) throw error;
+      problems.push(error.message);
+    }
+  }
+  return problems;
 }
 
 // ---------------------------------------------------------------- job storage
@@ -250,7 +284,7 @@ function sleep(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-function alive(pid: number): boolean {
+export function alive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
@@ -259,10 +293,13 @@ function alive(pid: number): boolean {
   }
 }
 
+/** The lock file: it holds the pid of the run that has the lock. */
+export const LOCK_FILE = '.lock.pid';
+
 /** Run fn while holding the factory lock: a file holding the owner's pid, created atomically.
  * A lock whose owner is gone (a crashed run) is taken over. */
 export function locked<T>(root: string, fn: () => T): T {
-  const lock = join(root, '.lock.pid');
+  const lock = join(root, LOCK_FILE);
   const mine = join(root, `.lock.${process.pid}.tmp`);
   writeFileSync(mine, `${process.pid}\n`);
   try {
@@ -425,6 +462,29 @@ export const cmdInit: Command = (root, _a, io) => {
   io.stdout(`factory ready at ${root}\ndashboard: factory dashboard\n`);
 };
 
+/** A new job record: every field the CLI writes, in the order it writes them (save() adds `updated`). */
+export function blankJob(id: string, title: string, created: string): Job {
+  return {
+    id,
+    title,
+    stage: 'intake',
+    status: 'active',
+    needs_human: null,
+    activity: '',
+    spec: null,
+    spec_sha: null,
+    branch: null,
+    base: null,
+    base_branch: null,
+    worktree: null,
+    proof_attempts: 0,
+    rounds: [],
+    followups: [],
+    created,
+    history: [],
+  };
+}
+
 export const cmdNew: Command = (root, a, io) => {
   const title = list(a, 'title').join(' ').trim();
   const slug =
@@ -441,25 +501,7 @@ export const cmdNew: Command = (root, a, io) => {
       .map((head) => Number.parseInt(head, 10));
     const id = `${String(Math.max(0, ...nums) + 1).padStart(3, '0')}-${slug}`;
     mkdirSync(join(root, 'jobs', id));
-    const job: Job = {
-      id,
-      title,
-      stage: 'intake',
-      status: 'active',
-      needs_human: null,
-      activity: '',
-      spec: null,
-      spec_sha: null,
-      branch: null,
-      base: null,
-      base_branch: null,
-      worktree: null,
-      proof_attempts: 0,
-      rounds: [],
-      followups: [],
-      created: now(),
-      history: [],
-    };
+    const job = blankJob(id, title, now());
     log(job, 'created');
     save(root, job);
     return id;
