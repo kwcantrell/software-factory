@@ -8,6 +8,31 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- factory-doctor `migrate`: moves a repo between software-factory versions, **up or down**, and
+  replaces `factory upgrade`. A version registry (`src/registry.ts`) lists, per version from the
+  original kwcantrell-plugins factory and 0.2.0 to the `[Unreleased]` changes, what it changes in a
+  repo (`factory.json` keys, `job.json` fields, station-template fixed sections, requirements such as
+  remote signing and recorded commits, the doctor file format, the marketplace's plugins), each with
+  its handling up and down (automatic, manual with the exact step, or refused with the reason); a
+  test fails when the code has a key, field, fixed section or plugin the registry lacks.
+  `migrate [--to <version>] [--repo <path>] [--json]` detects the version of the repo and of the
+  installed plugins and prints the plan in order, read-only: upgrades update the plugins first, then
+  the repo; downgrades migrate the repo first, then the plugins. A downgrade that would lose meaning
+  is refused up front (exit 1): a remote factory, an unfinished job with a recorded commit, any move
+  before 0.3.0. `migrate --apply [--scope user]` makes the repo steps through the factory CLI, backups
+  first, then prints what is left; it never edits `job.json` itself. `migrate --update-plugins`
+  prints `claude plugin marketplace update software-factory` and `claude plugin update
+  <name>@software-factory` for each installed plugin, and runs them only with `--confirmed` (never
+  installing or removing one; a downgrade or a version that is not the latest gets manual steps,
+  since Claude Code cannot pin a plugin version). The skill shows the dry run first and asks before
+  `--apply`, again before `--scope user`, and separately before `--update-plugins --confirmed`;
+  `allowed-tools` adds only `migrate` and `migrate --json`.
+- factory: `factory migrate-repo --from <version> --to <version> [--apply] [--repo <path>] [--scope
+  <s>]` (plumbing for `factory-doctor migrate`, one JSON report; `--versions` lists the versions it
+  knows): the runtime-dir and settings moves `factory upgrade` made, plus downgrades (removing the
+  `factory.json` keys and `job.json` fields the target does not know, backed up first, and refusing
+  a remote factory, an unfinished job with a recorded commit, or a target before 0.3.0).
+
 - factory-doctor, a new plugin: a committed, reviewable record in the application's repo,
   `.factory/doctor.json`, of what running the app needs per profile (dev, stage, test, ...; with
   `extends`): tools with version constraints, environment variable names (with an optional format
@@ -127,6 +152,9 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Changed
 
+- `factory upgrade` and `/factory:upgrade` moved to `factory-doctor migrate`: they print where it
+  moved and the command to run (`factory upgrade` exits 2). Its suggested manual commands now name
+  `factory-doctor migrate --apply --scope <scope>`.
 - `factory config` prints the new `remote` key (`null` by default), and the dashboard server no
   longer serves anything under a `.git` directory.
 - `factory close` is a human gate: the `PreToolUse` hook makes it a permission prompt like `merge`,

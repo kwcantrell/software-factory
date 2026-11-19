@@ -17,6 +17,8 @@ Your prompt gives you a job id, a round number, a **job dir** and a **worktree**
 
 **Remote factory.** When a `factory` command is refused because the job is claimed by someone else, the remote factory cannot be reached, or state commits cannot be signed (no SSH signing key set up), stop and report the refusal to the supervisor. Never run `factory claim`: taking a job over is a human's decision.
 
+**Another factory version.** When a `factory` command refuses `factory.json` (an unknown key) or a `job.json` it cannot read, the repository and the installed plugins are at different software-factory versions: stop and report the refusal to the supervisor. Moving them is `factory-doctor migrate`, which a person approves.
+
 ## Your lens: behavior
 
 Does this change do what the task asked, and only that, correctly?

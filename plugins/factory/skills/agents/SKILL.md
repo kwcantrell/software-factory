@@ -36,3 +36,5 @@ Outside both, each template also says what a station does when a remote factory 
 ## A new reviewer lens
 
 A lens is a reviewer the plugin does not ship (say `performance`). Make it from the reviewer template with `factory agents new reviewer-<name>` and fill in its lens section: the one question the lens answers, then what it checks in this repository. A lens only reviews once `factory.json`'s `reviewers` lists it: `new` says so and prints the line to set. Propose that change to the user and make it only after they confirm; it changes every future review round. `factory agents` shows `missing` for a listed reviewer that has no agent that passes the check, and `/factory:run` then escalates the job instead of skipping the lens.
+
+If `factory` refuses `factory.json` (an unknown key) or a `job.json` it cannot read, the repo was likely written by another software-factory version: point the user to `factory-doctor migrate` (the factory-doctor skill), which replaced `factory upgrade`, instead of editing either file.
