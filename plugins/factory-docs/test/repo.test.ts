@@ -36,5 +36,5 @@ test('CI runs the gate on pull requests against the base branch, with full histo
   assert.match(step, /^ {8}if: github\.event_name == 'pull_request'$/m);
   assert.match(step, /^ {10}BASE_REF: \$\{\{ github\.base_ref \}\}$/m);
   assert.match(step, /^ {8}run: npx --yes --offline --loglevel=error --package=\.\/plugins\/factory-docs -- factory-docs gate --base "origin\/\$BASE_REF"$/m);
-  for (const uses of ci.matchAll(/uses: ([^\s#]+)/g)) assert.match(uses[1] ?? '', /^(?:\.\/|[\w.-]+\/[\w.-]+@[0-9a-f]{40}$)/, uses[1]);
+  for (const uses of ci.matchAll(/uses: ([^\s#]+)/g)) assert.match(uses[1] ?? '', /^(?:\.\/|[\w.-]+\/[\w.-]+@[0-9a-f]{40}$)/, uses[1] ?? '');
 });
