@@ -35,6 +35,7 @@ build step and no runtime dependency.
 | `plugins/factory/package.json` | `"bin": {"factory": "src/cli.ts"}`, `type: module`, private, no `dependencies` |
 | `plugins/factory/src/cli.ts`, `run.ts` | CLI entry, and argument parsing, usage text and exit codes |
 | `plugins/factory/src/factory.ts` | The line's state machine and gates: the only writer of `job.json` |
+| `plugins/factory/src/agents.ts` | `factory agents`: station agent resolution (project or shipped fallback), `new` (a template as a project agent) and `check` (the rules a project agent must pass) |
 | `plugins/factory/src/upgrade.ts` | `factory upgrade`: moves a repo from an older factory (settings, `factory/` dir, manual steps); dry run unless `--apply` |
 | `plugins/factory/src/dashboard.ts` | `factory dashboard`: serves the factory dir on 127.0.0.1 |
 | `plugins/factory/src/pyfmt.ts` | Output formatting kept byte-identical to the original CLI (JSON, rounding) |
@@ -44,7 +45,9 @@ build step and no runtime dependency.
 | `plugins/factory/skills/approve`, `skills/ship` | Human-only gates (`disable-model-invocation: true`) |
 | `plugins/factory/skills/dashboard` | Starts the dashboard server |
 | `plugins/factory/skills/upgrade` | `/factory:upgrade`: runs the `factory upgrade` dry run, asks before `--apply` (and again before `--scope user`) |
-| `plugins/factory/agents/*.md` | `builder`, `verifier`, `reviewer-security`, `reviewer-standards`, `reviewer-behavior` |
+| `plugins/factory/skills/agents` | `/factory:agents`: makes a project's own station agents from the templates; pre-approves only `factory agents` and `factory agents check` |
+| `plugins/factory/agents/*.md` | `builder`, `verifier`, `reviewer-security`, `reviewer-standards`, `reviewer-behavior`: the shipped fallback station agents |
+| `plugins/factory/templates/agents/*.md` | `builder`, `verifier`, `reviewer` (a generic lens): station templates, with `fixed` sections (the line's non-negotiables) and `fill` sections (the project's) |
 | `plugins/factory/dashboard/index.html` | Dependency-free dashboard; polls `jobs/*/job.json` through the server's directory listing |
 | `plugins/factory/test/*.test.ts` | `node:test` suites; `test/fixtures/` holds job records written by the original CLI |
 | `plugins/factory-plugin-builder/src/` | `cli.ts`, `run.ts`; `check.ts` (the convention's rules), `scaffold.ts` (`new`), `verify.ts`, `repo.ts` (finds the checkout) |
@@ -182,6 +185,12 @@ next one, rule by rule (the bracketed ids are its rule names).
   permission prompts by the TS hook (`plugins/factory/src/gate.ts`, run by `hooks/hooks.json`). A new
   command only a person may run must be added there too, and its skill marked
   `disable-model-invocation: true`.
+- **Station agents.** `/factory:run` launches, per station, the agent `factory agents` names: the
+  project's `.claude/agents/factory-<station>.md` when it passes `factory agents check`, else the
+  shipped `factory:<station>`. A non-negotiable of a station goes in a `fixed` section of its
+  template in `plugins/factory/templates/agents/`, and the shipped agent keeps the same text:
+  `agents.test.ts` runs `check` on every shipped agent. A change to a fixed section changes it in
+  both, and makes existing project agents fail `check` until they are refreshed.
 - **New `job.json` fields need dashboard handling** in `plugins/factory/dashboard/index.html`, which
   must also keep working on older `job.json` files that lack the field.
 - **New `factory.json` keys go in `DEFAULTS` and in `loadConfig`'s validation** in

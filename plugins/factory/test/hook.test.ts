@@ -86,3 +86,13 @@ test('anything else, including malformed input, prints nothing and exits 0', () 
     assert.equal(p.stderr, '', stdin);
   }
 });
+
+test('the station agent commands stay ungated, and a gated command chained after one is still caught', () => {
+  for (const command of [`${NPX} agents`, `${NPX} agents --json`, `${NPX} agents check`, `${NPX} agents new reviewer-perf --force`]) {
+    assert.equal(hook(payload(command)).stdout, '', command);
+  }
+  for (const [name, reason] of Object.entries(REASONS)) {
+    const p = hook(payload(`${NPX} agents check && ${NPX} ${name} 3`));
+    assert.equal(JSON.parse(p.stdout).hookSpecificOutput.permissionDecisionReason, reason, name);
+  }
+});

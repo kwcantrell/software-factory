@@ -7,7 +7,9 @@
       "plugins/factory/hooks/**",
       "plugins/factory/dashboard/**",
       "plugins/factory/package.json",
-      "plugins/factory/.claude-plugin/plugin.json"
+      "plugins/factory/.claude-plugin/plugin.json",
+      "plugins/factory/templates/agents/**",
+      "plugins/factory/skills/agents/**"
     ],
     "CLAUDE.md": [
       ".claude-plugin/marketplace.json",
@@ -18,7 +20,9 @@
       "templates/plugin/**",
       "plugins/factory-plugin-builder/src/check.ts",
       "plugins/factory/src/gate.ts",
-      "plugins/factory/src/factory.ts"
+      "plugins/factory/src/factory.ts",
+      "plugins/factory/src/agents.ts",
+      "plugins/factory/templates/agents/**"
     ],
     "CONTRIBUTING.md": [
       "package.json",
@@ -65,11 +69,15 @@
       "plugins/factory-plugin-discover/package.json",
       "plugins/factory-plugin-discover/.claude-plugin/plugin.json"
     ],
-    "plugins/factory/skills/run/SKILL.md": ["plugins/factory/src/run.ts"],
+    "plugins/factory/skills/run/SKILL.md": ["plugins/factory/src/run.ts", "plugins/factory/src/agents.ts"],
     "plugins/factory/skills/approve/SKILL.md": ["plugins/factory/src/run.ts", "plugins/factory/src/gate.ts"],
     "plugins/factory/skills/ship/SKILL.md": ["plugins/factory/src/run.ts", "plugins/factory/src/gate.ts"],
     "plugins/factory/skills/dashboard/SKILL.md": ["plugins/factory/src/run.ts", "plugins/factory/src/dashboard.ts"],
     "plugins/factory/skills/upgrade/SKILL.md": ["plugins/factory/src/run.ts", "plugins/factory/src/upgrade.ts"],
+    "plugins/factory/skills/agents/SKILL.md": ["plugins/factory/src/run.ts", "plugins/factory/src/agents.ts", "plugins/factory/templates/agents/**"],
+    "plugins/factory/templates/agents/builder.md": ["plugins/factory/src/agents.ts", "plugins/factory/agents/builder.md"],
+    "plugins/factory/templates/agents/verifier.md": ["plugins/factory/src/agents.ts", "plugins/factory/agents/verifier.md"],
+    "plugins/factory/templates/agents/reviewer.md": ["plugins/factory/src/agents.ts", "plugins/factory/agents/reviewer-*.md"],
     "plugins/factory/agents/builder.md": ["plugins/factory/src/run.ts"],
     "plugins/factory/agents/verifier.md": ["plugins/factory/src/run.ts"],
     "plugins/factory/agents/reviewer-security.md": ["plugins/factory/src/run.ts"],

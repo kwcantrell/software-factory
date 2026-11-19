@@ -25,7 +25,7 @@ function frontmatter(text: string): Record<string, string> {
 }
 
 test('every skill and agent says once that `factory` means the npx invocation', () => {
-  assert.equal(skills.length, 5);
+  assert.equal(skills.length, 6);
   assert.equal(agents.length, 5);
   for (const file of prompts) {
     const text = readFileSync(file, 'utf8');
@@ -99,4 +99,41 @@ test('every station writes its handoff file only to the job dir and deletes a st
     );
     assert.ok(!text.includes('delete your own stray copy and retry'), `${agent} still says to delete any stray copy`);
   }
+});
+
+test('the agents skill pre-approves only the read-only factory agents and factory agents check', () => {
+  const allowed = frontmatter(readFileSync(join(PLUGIN, 'skills', 'agents', 'SKILL.md'), 'utf8'))['allowed-tools'] ?? '';
+  const rules = allowed.split(/,\s*(?=Bash\()/).map((r) => r.slice(`Bash(${INVOCATION} `.length, -1));
+  assert.deepEqual(rules, ['agents', 'agents --json', 'agents check:*']);
+});
+
+test('the agents skill walks through reading the repo, new, filling, check and asking before a commit', () => {
+  const text = readFileSync(join(PLUGIN, 'skills', 'agents', 'SKILL.md'), 'utf8');
+  for (const needle of [
+    'factory agents new <station>',
+    'replace every `TODO:` line',
+    'Run `factory agents check` and fix each problem',
+    'ask whether to commit `.claude/agents/`',
+    'Commit only after a yes',
+    '`specs_dir`',
+    'Never reword, shorten or drop them',
+    'make it only after they confirm',
+  ]) {
+    assert.ok(text.includes(needle), `agents skill lacks: ${needle}`);
+  }
+});
+
+test('the run skill takes each station agent from factory agents, not a hard-coded name', () => {
+  const text = readFileSync(join(PLUGIN, 'skills', 'run', 'SKILL.md'), 'utf8');
+  for (const name of ['factory:builder', 'factory:verifier', 'factory:reviewer-<name>']) {
+    assert.ok(!text.includes(`\`${name}\` agent`) && !text.includes(`\`${name}\` for`), `run skill hard-codes ${name}`);
+  }
+  assert.match(text, /Run `factory agents` before launching any/);
+  assert.match(text, /Launch the builder agent `factory agents` names/);
+  assert.match(text, /Launch the verifier agent `factory agents` names/);
+  assert.match(text, /the agent `factory agents` names for `reviewer-<name>`\. If it says `missing` for a reviewer in the round, escalate with `factory human`/);
+  // The builder's model rules are unchanged.
+  assert.match(text, /Pick the builder's model from `task\.md` and pass it as the Agent tool's `model`/);
+  assert.match(text, /When unsure, use `opus`\./);
+  assert.match(text, /you do not write product code, judge proof, or review diffs yourself/);
 });

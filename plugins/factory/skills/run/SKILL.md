@@ -2,7 +2,7 @@
 name: run
 description: Run a request through the software factory - triage it into scoped jobs, build each in an isolated worktree, prove it independently, review it with three reviewers, and stop at the human merge gate. Use when the user asks to run, build or ship something "through the factory", or to continue factory jobs.
 argument-hint: <request, or a job id to continue>
-allowed-tools: Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory status:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory path:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory config:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory stats:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory new:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory start:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory spec:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory built:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory proof:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory round:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory verdict:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory human:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory note:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory followup:*)
+allowed-tools: Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory status:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory path:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory config:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory agents), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory agents --json), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory stats:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory new:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory start:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory spec:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory built:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory proof:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory round:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory verdict:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory human:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory note:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory followup:*)
 ---
 
 # Run the factory line
@@ -24,6 +24,10 @@ You are the line supervisor. You triage, dispatch agents and move jobs; you do n
 - Exit code 2 means the job was escalated to a human. Stop work on that job and report it; only the user resumes it.
 - The user watches progress on the dashboard (`/factory:dashboard`). Keep it truthful: use `factory note <id> <text>` when a job's situation changes in a way the stage alone does not show.
 - **Follow-ups** - later work a job turns up but should not do (a risk, a loose end, a nearby bug outside scope) - live in `job.json`, not in markdown files. Every station records its own with `factory followup add <id> --by <who> "<text>"`; you record yours `--by supervisor`, including ones that surface after a job merged (a CI failure on the landing PR, say). `factory followup list` shows the open ones across all jobs. Don't keep a separate follow-ups file. When a follow-up becomes its own job, mark it with `factory followup done <id> <n> "job <new id>"`; one that is no longer worth doing, `factory followup drop <id> <n> "<why>"`.
+
+## Station agents
+
+Each station (the builder, the verifier and each reviewer) is an agent you launch, never work you do yourself. Run `factory agents` before launching any: it prints, per station, the agent to launch - the project's own (`factory-<station>`, from the repo's `.claude/agents/`) when it exists and passes `factory agents check`, otherwise the plugin's shipped fallback (`factory:<station>`), or `missing` for a configured reviewer that has neither. Use exactly the agent it names. Give every station, besides what the steps below list, the factory plugin root: `${CLAUDE_PLUGIN_ROOT}`. If the Agent tool does not offer a project agent it names (Claude Code loads `.claude/agents/` when a session starts), run `factory human <id> "<reason>"` saying the session must be restarted to load it; do not launch another agent in its place.
 
 If the request is empty or names an existing job, run `factory status` and continue each active job from its current stage. Skip jobs marked needs-human unless the user just told you how to resolve one.
 
@@ -48,7 +52,7 @@ Otherwise, or once the spec is approved, run `factory start <id>` - it checks th
 
 ## 2. Build
 
-Launch the `factory:builder` agent with: the job id, the job dir, the worktree path, and whether this is a first build or rework (and of which round). Nothing else - the files carry the context.
+Launch the builder agent `factory agents` names with: the job id, the job dir, the worktree path, and whether this is a first build or rework (and of which round). Nothing else - the files carry the context.
 
 Pick the builder's model from `task.md` and pass it as the Agent tool's `model`:
 
@@ -61,13 +65,13 @@ When it returns, run `factory built <id>`. If refused (uncommitted changes, no c
 
 ## 3. Proof
 
-Launch the `factory:verifier` agent with the job id, job dir and worktree. It records pass or fail itself.
+Launch the verifier agent `factory agents` names with the job id, job dir and worktree. It records pass or fail itself.
 
 Check `factory status <id>`: stage `review` means proven; stage `build` means it failed - go back to step 2 as rework. After repeated failed proofs (three by default) the CLI escalates.
 
 ## 4. Review
 
-Run `factory round <id>`. It prints the round number and the reviewers for this project (set in `factory.json`; by default security, standards and behavior). Launch one agent per reviewer together in one message, each with the job id, round number, job dir and worktree: `factory:reviewer-<name>` for the three the plugin ships, and for any other name the project's own `reviewer-<name>` agent. If no agent exists for a configured reviewer, escalate with `factory human` and say which one is missing; do not skip it or stand in for it. Each reviewer writes its review and records its own verdict.
+Run `factory round <id>`. It prints the round number and the reviewers for this project (set in `factory.json`; by default security, standards and behavior). Launch one agent per reviewer together in one message, each with the job id, round number, job dir and worktree: the agent `factory agents` names for `reviewer-<name>`. If it says `missing` for a reviewer in the round, escalate with `factory human` and say which one is missing; do not skip it or stand in for it. Each reviewer writes its review and records its own verdict.
 
 When all of them have returned, check `factory status <id>`:
 
