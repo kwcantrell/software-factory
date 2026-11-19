@@ -16,6 +16,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history, so the doc gate finds the merge-base with the base branch.
+          fetch-depth: 0
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -33,3 +36,11 @@ jobs:
 
       - name: Run every check (factory-dev check)
         run: npx --yes --offline --loglevel=error --package=./plugins/factory-dev -- factory-dev check --require-claude
+
+      # Docs left stale by this pull request, measured from its merge-base with the PR's base branch
+      # (factory-dev check above measures from origin/main).
+      - name: Docs in sync with code (factory-docs gate)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: npx --yes --offline --loglevel=error --package=./plugins/factory-docs -- factory-docs gate --base "origin/$BASE_REF"

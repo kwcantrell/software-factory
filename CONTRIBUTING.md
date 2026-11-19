@@ -48,8 +48,10 @@ node plugins/factory-dev/src/cli.ts check
 every tracked or untracked-but-not-ignored JSON file, validates the marketplace, every plugin and
 the template (`claude plugin validate`), typechecks (`npm run typecheck`), runs the tests
 (`npm test`), checks that every plugin has the same version and that it has a `CHANGELOG.md`
-section (`factory-dev release`), and checks every plugin against the convention
-(`factory-plugin-builder check --all`). Every step runs; it exits 1 and lists the failed steps if
+section (`factory-dev release`), checks every plugin against the convention
+(`factory-plugin-builder check --all`), and runs the doc gate (`factory-docs gate`: the doc map is
+sound and no doc covering a changed file was left unchanged, measured from `origin/main` or
+`main`). Every step runs; it exits 1 and lists the failed steps if
 any fails. Without `claude` on the PATH the validate steps are reported as skipped, not passed; CI
 runs it with `--require-claude`, which fails them instead. See
 [plugins/factory-dev/README.md](plugins/factory-dev/README.md).
@@ -81,6 +83,11 @@ CLI; `compat.test.ts` keeps the format compatible with them.
 Every PR should:
 
 - **Be green**: `factory-dev check` passes locally, and the CI workflow passes on the PR.
+- **Keep the docs in sync**: `node plugins/factory-docs/src/cli.ts stale` lists the docs
+  (`docs/docs-map.json` maps each to the code it describes) that the change touched code for but
+  did not update; update them, and the map when you add a doc or a plugin. CI runs
+  `factory-docs gate` on every PR against its base branch. See
+  [plugins/factory-docs/README.md](plugins/factory-docs/README.md).
 - **Have a changelog entry** under `## [Unreleased]` in `CHANGELOG.md` for any user-visible change
   (behaviour of the CLI, skills, agents, hooks, dashboard or config), in the right Keep a Changelog
   group (`Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`). Internal-only changes

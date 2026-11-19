@@ -19,7 +19,9 @@ npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factor
 
 It runs, in order and all of them: every JSON file parses, `claude plugin validate` on the
 marketplace, each plugin and the template, `npm run typecheck`, `npm test`, the release check
-(below, without a tag) and `factory-plugin-builder check --all`. Each step's output streams on
+(below, without a tag), `factory-plugin-builder check --all`, and the doc gate (`factory-docs gate`
+against `origin/main` or `main`: the doc map is sound and no doc was left stale by the change; the
+`factory-docs` skill says how to fix what it reports). Each step's output streams on
 stderr, then one `PASS`, `FAIL` or `SKIP` line per step. Exit 0 means green. Exit 1 ends with
 `factory-dev: check failed: <steps>`: fix those steps and run it again; do not call the change done
 while it fails. `SKIP` appears only when `claude` is not on the PATH: tell the user those steps did

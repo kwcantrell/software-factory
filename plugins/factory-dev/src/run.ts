@@ -27,8 +27,9 @@ Commands:
   check [--require-claude]
                     Run every check CI runs: every tracked or untracked-but-not-ignored JSON file
                     parses; claude plugin validate on the marketplace, each listed plugin and the
-                    template; npm run typecheck; npm test; the release check; and
-                    factory-plugin-builder check --all. Every step runs; exit 1 listing the failed
+                    template; npm run typecheck; npm test; the release check;
+                    factory-plugin-builder check --all; and factory-docs gate (lint only when no
+                    origin/main or main resolves). Every step runs; exit 1 listing the failed
                     steps. Without claude on the PATH the validate steps are skipped (not passed)
   release [<tag>] [--notes-out <file>]
                     Check that every marketplace plugin has the same version in plugin.json and

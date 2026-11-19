@@ -22,12 +22,13 @@ build step and no runtime dependency.
 | `factory` | The line itself: the `factory` CLI (state machine and gates), the supervisor and gate skills, the station agents, the human-gate hook and the dashboard |
 | `factory-plugin-builder` | Builds plugins for this marketplace: `new` (scaffold from `templates/plugin`), `check` (the "Plugin layout" and "CLI convention" below, statically, with a fix per finding), `verify` (the full gate for one plugin). Its `build-plugin` skill is the workflow. See its `README.md` |
 | `factory-dev` | Develops this repository: `check` (every CI gate in one command) and `release [<tag>]` (the tag/version check and release notes). Its `factory-dev` skill says when to run which. CI and the release workflow run it too. See its `README.md` |
+| `factory-docs` | Keeps this repository's docs in sync with its code: `docs/docs-map.json` maps each doc to the code it describes; `which <path>` (the docs covering a file), `stale` (docs a change left stale), `lint` (the map, and every CLI command mentioned in its README), `gate` (lint + stale; run by `factory-dev check` and CI). Its `factory-docs` skill is the before-finishing workflow. See its `README.md` |
 
 ## Layout
 
 | Path | What it is |
 | --- | --- |
-| `.claude-plugin/marketplace.json` | Marketplace `software-factory`; entries `factory`, `factory-plugin-builder` and `factory-dev`, each from `./plugins/<name>` |
+| `.claude-plugin/marketplace.json` | Marketplace `software-factory`; entries `factory`, `factory-plugin-builder`, `factory-dev` and `factory-docs`, each from `./plugins/<name>` |
 | `plugins/factory/.claude-plugin/plugin.json` | Plugin manifest: name `factory`, `version`, `license` |
 | `plugins/factory/package.json` | `"bin": {"factory": "src/cli.ts"}`, `type: module`, private, no `dependencies` |
 | `plugins/factory/src/cli.ts`, `run.ts` | CLI entry, and argument parsing, usage text and exit codes |
@@ -48,9 +49,12 @@ build step and no runtime dependency.
 | `plugins/factory-plugin-builder/skills/build-plugin/SKILL.md` | The plugin-building workflow: new, implement, check, verify |
 | `plugins/factory-dev/src/` | `cli.ts`, `run.ts`; `check.ts` (the CI gates, run in order), `release.ts` (versions and release notes), `repo.ts` (finds the checkout) |
 | `plugins/factory-dev/skills/factory-dev/SKILL.md` | When to run `check` (before finishing any change) and `release <tag>` (before tagging) |
+| `plugins/factory-docs/src/` | `cli.ts`, `run.ts`; `docs.ts` (`which`, `stale`, `lint`), `glob.ts` (git-style globs), `repo.ts` (finds the checkout, reads the map) |
+| `plugins/factory-docs/skills/factory-docs/SKILL.md` | Before finishing a change: `stale`, update the listed docs, `gate`; `which` to find a file's docs |
+| `docs/docs-map.json` | The doc map: each doc and the globs of the code it describes, the changelog doc, `*.md` files that are not docs, and where a plugin's CLI is documented |
 | `templates/plugin/` | The plugin template, itself a valid plugin (`plugin-template`), not listed in the marketplace |
 | `package.json`, `package-lock.json`, `tsconfig.json` | Dev tooling only (typecheck, tests, `new-plugin`). Plugins never import from the root |
-| `.github/workflows/` | `ci.yml` (PRs, pushes to `main`: `npm ci`, then `factory-dev check --require-claude`) and `release.yml` (tags `v*`: `factory-dev release <tag>`) |
+| `.github/workflows/` | `ci.yml` (PRs, pushes to `main`: full history, `npm ci`, `factory-dev check --require-claude`, and on PRs `factory-docs gate --base origin/<base branch>`) and `release.yml` (tags `v*`: `factory-dev release <tag>`) |
 | `docs/research/` | Build-vs-buy research behind the design; reference material, not maintained code |
 
 ## Commands
@@ -67,6 +71,9 @@ node --test plugins/factory/test/cli.test.ts       # one suite
 claude plugin validate .                           # marketplace manifest
 claude plugin validate plugins/<name>              # one plugin (also templates/plugin)
 node plugins/factory-dev/src/cli.ts release v0.2.0 # would this tag release? prints its notes
+node plugins/factory-docs/src/cli.ts stale         # docs this change left stale (vs origin/main or main)
+node plugins/factory-docs/src/cli.ts which <path>  # the docs that describe a file
+node plugins/factory-docs/src/cli.ts gate          # lint the doc map + stale; factory-dev check runs it
 node plugins/factory/src/cli.ts --help             # every CLI command
 node plugins/factory/src/cli.ts upgrade            # dry run: what moving this repo from an older factory would change
 ```
@@ -77,6 +84,12 @@ instead. Agents with the `factory-dev` plugin installed run the same commands th
 (`npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory-dev check`), from
 anywhere in the checkout. The repository holds no Python or shell scripts: dev tooling is TypeScript
 in `plugins/factory-dev`.
+
+**Before finishing any change to this repository**, keep the docs in sync and run the checks: use
+the `factory-docs` skill (or the commands above) to run `stale`, update every doc it lists (and
+`docs/docs-map.json` when you add a doc or a plugin, or move code), and run `gate`; then run
+`factory-dev check`, which runs the same gate with every other CI check. Use `which <path>` to find
+the docs that describe a file before changing it. Do not narrow the map's globs to silence `stale`.
 
 ## Plugin layout
 
@@ -118,7 +131,8 @@ next one, rule by rule (the bracketed ids are its rule names).
   act on the machine or need a person, one `Bash(<prefix> <name> <command>:*)` rule per command that
   may run unprompted [allowed-tools]. `factory` never pre-approves `merge`, `approve` or `rework`;
   `factory-plugin-builder` pre-approves `check`, `verify` and `--help`, not `new`; `factory-dev`
-  pre-approves `check`, `release` and `--help`.
+  pre-approves `check`, `release` and `--help`; `factory-docs` pre-approves `which`, `stale`,
+  `lint`, `gate` and `--help` (all read-only).
 - **Hooks** run the plugin's own TypeScript in exec form, `"command": "node", "args":
   ["${CLAUDE_PLUGIN_ROOT}/src/cli.ts", "<command>"]` (or a dedicated entry under `src/`, as
   `factory`'s `src/human-gate.ts`), or a shell command starting with the npx prefix [hooks-cli].
@@ -170,7 +184,8 @@ next one, rule by rule (the bracketed ids are its rule names).
   (and so does a marketplace entry, if one ever lists a version), and they all move together. A
   release moves the `Unreleased` entries under the new version and bumps every plugin's `version`;
   `factory-dev release <tag>` refuses a tag that is not `v` + that version, and `factory-dev check`
-  refuses versions that differ at any time. A new plugin starts at the repo's current version.
+  refuses versions that differ at any time. A new plugin starts at the repo's current version
+  (`factory-plugin-builder new` sets it).
 - Every change to the CLI's behaviour comes with a test in `plugins/factory/test/` that drives the
   CLI as a subprocess.
 - Keep stations short: each skill and agent is one prompt file. See CONTRIBUTING.md for branch,

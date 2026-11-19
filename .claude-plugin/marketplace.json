@@ -24,6 +24,12 @@
       "source": "./plugins/factory-dev",
       "description": "Dev tooling for developing software-factory: one check command that runs every CI gate, and the release tag/version check that prints the release notes for a version",
       "license": "MIT"
+    },
+    {
+      "name": "factory-docs",
+      "source": "./plugins/factory-docs",
+      "description": "Keeps software-factory docs in sync with code: a map from each doc to the code it describes, which docs cover a file, which docs a change left stale, a lint for the map and CLI command coverage, and the gate CI runs",
+      "license": "MIT"
     }
   ]
 }

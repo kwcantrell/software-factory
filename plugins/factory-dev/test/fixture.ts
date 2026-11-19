@@ -1,6 +1,6 @@
 // Throwaway software-factory checkouts in a temp dir for factory-dev's tests: a marketplace listing one
-// plugin, a CHANGELOG.md, a root package.json whose typecheck and test scripts are stubs, a stub
-// factory-plugin-builder CLI, and a fake `claude`. Every stub's exit status is set per fixture. Tests
+// plugin, a CHANGELOG.md, a root package.json whose typecheck and test scripts are stubs, stub
+// factory-plugin-builder and factory-docs CLIs, and a fake `claude`. Every stub's exit status is set per fixture. Tests
 // never write to the real repo.
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -38,6 +38,7 @@ export interface FixtureOptions {
   typecheckExit?: number;
   testExit?: number;
   conventionExit?: number;
+  docsExit?: number;
 }
 
 export interface Fixture {
@@ -77,6 +78,11 @@ export function fixture(options: FixtureOptions = {}): Fixture {
   writeFileSync(
     join(root, 'plugins', 'factory-plugin-builder', 'src', 'cli.ts'),
     `console.log('stub factory-plugin-builder', process.argv.slice(2).join(' '));\nprocess.exit(${options.conventionExit ?? 0});\n`,
+  );
+  mkdirSync(join(root, 'plugins', 'factory-docs', 'src'), { recursive: true });
+  writeFileSync(
+    join(root, 'plugins', 'factory-docs', 'src', 'cli.ts'),
+    `console.log('stub factory-docs', process.argv.slice(2).join(' '));\nprocess.exit(${options.docsExit ?? 0});\n`,
   );
   writeFileSync(join(root, '.gitignore'), 'ignored/\n');
   const git = spawnSync('git', ['init', '-q'], { cwd: root, encoding: 'utf8' });

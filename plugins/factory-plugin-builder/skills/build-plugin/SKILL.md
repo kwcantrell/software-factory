@@ -22,8 +22,9 @@ asking; `new` writes into the checkout, so it asks for permission first.
    ```
 
    It prints `{"name","path","marketplace","description"}`: the plugin is in `plugins/<name>/` and
-   listed in `.claude-plugin/marketplace.json`. Exit 1 means the name is taken; exit 2 means it is
-   not kebab-case. Either way nothing was written.
+   listed in `.claude-plugin/marketplace.json`, at the version the other plugins share (so leave
+   `version` alone). Exit 1 means the name is taken; exit 2 means it is not kebab-case. Either way
+   nothing was written.
 
 2. Implement the commands. Put each command's logic in `src/<logic>.ts` as plain functions, and wire
    them in `src/run.ts` (argument parsing with `parseArgs`, usage text, `--json`, exit codes 0/1/2,

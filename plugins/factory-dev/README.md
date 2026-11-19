@@ -49,6 +49,7 @@ Runs every check CI needs, in order, from the checkout root. Every step runs eve
 | `test` | `npm test` | a test fails |
 | `release` | `release` below, without a tag | the plugins' versions differ, or the version has no `CHANGELOG.md` section |
 | `plugin-convention` | `node plugins/factory-plugin-builder/src/cli.ts check --all` (the checkout's own convention checker) | any plugin breaks the convention, or the checker is missing |
+| `docs` | `node plugins/factory-docs/src/cli.ts gate --base <ref>` (the doc map's lint, then the docs this change left stale), with `<ref>` the first of `origin/main` and `main` that resolves with a merge-base; when neither does, `factory-docs lint` alone | the map or a plugin README's command coverage has a problem, a doc is stale, or factory-docs is missing |
 
 Each step's own output streams on stderr, with a `PASS`, `FAIL` or `SKIP` line as it finishes. On
 success stdout gets one line per step and `all checks passed` (naming any skipped steps); `--json`
@@ -63,6 +64,7 @@ PASS  validate .                       claude plugin validate .
 PASS  validate plugins/factory         claude plugin validate plugins/factory
 ...
 PASS  plugin-convention                node plugins/factory-plugin-builder/src/cli.ts check --all --repo .
+PASS  docs                             node plugins/factory-docs/src/cli.ts gate --base main --repo .
 all checks passed
 ```
 
@@ -100,7 +102,7 @@ Without a tag, `release` checks that the current version is releasable; `check` 
 
 `test/release.test.ts` has a counterpart for every test of the Python release script it replaced,
 plus the all-plugins and `package.json` version checks. `test/check.test.ts` makes each step fail in
-a temp-dir fixture checkout (stub `typecheck`, `test` and convention checker, a fake `claude`, and
+a temp-dir fixture checkout (stub `typecheck`, `test`, convention checker and factory-docs, a fake `claude`, and
 no `claude` at all) and checks the exit code and the named step. `test/run.test.ts` covers argument
 parsing and exit codes, and `test/cli.test.ts` runs every skill command line through npx from a
 fresh copy of the plugin. No test writes to the real repo.

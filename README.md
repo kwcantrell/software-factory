@@ -96,6 +96,33 @@ npx --yes --offline --loglevel=error --package="$PLUGIN" -- factory status
 
 or, equivalently, `node "$PLUGIN/src/cli.ts" status`. The examples below write it as plain `factory`.
 
+| Command | What it does |
+| --- | --- |
+| `factory init` | create `./factory` and install the dashboard |
+| `factory new` | intake: open a job |
+| `factory start` | intake -> build: needs `task.md`; creates the worktree |
+| `factory spec` | ask a human to approve `task.md` before building |
+| `factory approve` | human gate: approve a job's spec |
+| `factory built` | build -> proof: needs `build.md` and clean commits |
+| `factory proof` | the verifier's result: pass -> review, fail -> build |
+| `factory round` | open a review round |
+| `factory verdict` | a reviewer's verdict; needs `review-<round>-<reviewer>.md` |
+| `factory human` | flag a job as needing a human |
+| `factory resume` | human: clear needs-human and continue |
+| `factory merge` | human gate: merge an approved job and clean up |
+| `factory rework` | human: send an approved job back to build |
+| `factory close` | human: abandon a job without merging |
+| `factory config` | print the effective configuration (`factory.json` over defaults) |
+| `factory note` | set the job's activity line |
+| `factory followup` | record, list and resolve follow-ups (see below) |
+| `factory path` | print the job dir (or `--worktree`) |
+| `factory status` | list jobs, or show one |
+| `factory stats` | line metrics: proof and review pass rates, rounds, time, escalations |
+| `factory upgrade` | move a repo from an older factory to this version (dry run unless `--apply`) |
+| `factory dashboard` | serve the dashboard |
+
+`factory <command> --help` gives a command's arguments.
+
 ## Configure
 
 Optional. Put a `factory.json` at the repository root and commit it; anything you leave out keeps its default:
@@ -156,7 +183,7 @@ factory followup drop 12 3 not worth it
 ## Layout
 
 ```
-.claude-plugin/marketplace.json            marketplace "software-factory", listing plugins/factory and plugins/factory-plugin-builder
+.claude-plugin/marketplace.json            marketplace "software-factory", listing the plugins below
 plugins/factory/                           the plugin
   .claude-plugin/plugin.json               manifest (plugin name: factory)
   package.json                             "bin": {"factory": "src/cli.ts"}; no dependencies
@@ -172,6 +199,8 @@ plugins/factory/                           the plugin
   test/                                    node:test suites (CLI, npx, hook, dashboard, compatibility, upgrade)
 plugins/factory-plugin-builder/            builds plugins for this marketplace: new, check (the CLI convention), verify
 plugins/factory-dev/                       develops this repo: check (every CI gate), release (tag/version check, notes)
+plugins/factory-docs/                      keeps this repo's docs in sync with its code: which, stale, lint, gate
+docs/docs-map.json                         factory-docs' map: each doc and the globs of the code it describes
 templates/plugin/                          the template `npm run new-plugin -- <name>` copies (not in the marketplace)
 package.json, tsconfig.json                dev tooling only: typecheck, tests, new-plugin
 docs/research/                             the build-vs-buy research behind the design
@@ -184,6 +213,11 @@ To work on software-factory itself, install the `factory-dev` plugin
 `node plugins/factory-dev/src/cli.ts check` runs every check CI runs, and
 `node plugins/factory-dev/src/cli.ts release vX.Y.Z` says whether a tag would release; see
 [plugins/factory-dev/README.md](plugins/factory-dev/README.md).
+
+Docs are kept in sync with code by the `factory-docs` plugin: `docs/docs-map.json` maps each doc to
+the code it describes, `node plugins/factory-docs/src/cli.ts stale` lists the docs a change left
+stale, and `gate` (lint + stale) runs in `factory-dev check` and on every pull request; see
+[plugins/factory-docs/README.md](plugins/factory-docs/README.md).
 
 Contributing: see [CONTRIBUTING.md](CONTRIBUTING.md). Changes are listed in [CHANGELOG.md](CHANGELOG.md). MIT licensed ([LICENSE](LICENSE)).
 
