@@ -19,7 +19,9 @@ repository's `factory.json` sets `"advisor": {"share": true}` with a remote fact
 occurrence is also shared with the team on the factory's state branch. The CLI redacts anything that
 looks like a token or secret, and masks personal details, before storing or sharing it, but do your
 part too. If `record` or `suggest` prints a warning on stderr that the remote is or may be public,
-tell the user once; never turn sharing on or off yourself.
+tell the user once; never turn sharing on or off yourself. An occurrence that could not be shared
+yet (offline, or another advisor command was using the shared log) waits in a local queue and the
+next command pushes it: never record it again.
 
 ## When to record
 

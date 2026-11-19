@@ -63,6 +63,15 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - `factory config` prints the new `remote` key (`null` by default), and the dashboard server no
   longer serves anything under a `.git` directory.
 
+### Fixed
+
+- factory-plugin-advisor: with sharing on, an occurrence could be lost when two `record` or hook
+  processes of the same user ran at once for the first time: both set up the bare clone in the config
+  dir, one failed (`could not lock config file`) before writing the occurrence to the queue, and it
+  never reached the shared log. The occurrence is now queued before any git runs, and every git step
+  on the clone runs under a lock file; a process that cannot take it within 5 seconds leaves its
+  occurrence queued for the next command and exits 0 silently.
+
 ## [0.4.0] - 2026-11-19
 
 Station agents tailored to your repository are new in this release: run `/factory:agents` to

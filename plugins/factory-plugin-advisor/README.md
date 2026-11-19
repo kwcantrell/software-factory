@@ -168,7 +168,10 @@ a bare clone of its own in the config dir (`shared/<key>/repo.git`, owner-only),
 on the branch's newest tip so it only ever changes `advisor/` and cannot conflict with a job. A new
 occurrence is appended to the local log first, then put in a queue (`shared/<key>/queue/<id>.json`),
 then pushed; whatever cannot be pushed (offline, a lost race, the hook's 10-second limit) stays
-queued and is pushed by the next command or hook that reaches the remote, never twice. A state change
+queued and is pushed by the next command or hook that reaches the remote, never twice. The queue file
+is written before any git runs, and the commands and hooks of one user take turns on the bare clone
+(a lock file, `shared/<key>/lock`, taken over when its process is gone): one that waits more than 5
+seconds leaves its occurrence queued for the next command and says nothing. A state change
 that cannot be pushed is kept in the local `state.json` (and `shared/<key>/state-pending.json`) and
 pushed the same way. The hook stays `async` and silent; CLI commands say on stderr when the remote
 cannot be reached and carry on with what they have. git never prompts for credentials here.
