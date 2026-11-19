@@ -61,7 +61,9 @@ moves, or a new doc or plugin is added, update the map in the same change; `lint
 missing. In this repo each plugin's README covers its `src/**`, `package.json` and
 `.claude-plugin/plugin.json`, plus its `hooks/**` when it has hooks (`factory-plugin-advisor`; the
 `factory` plugin's hooks are covered by the root `README.md`), and each SKILL.md covers the CLI
-code it calls.
+code it calls. The `factory` station templates (`plugins/factory/templates/agents/*.md`) are docs
+too: each covers `src/agents.ts`, which checks agents against it, and the shipped agent that must
+keep its fixed sections.
 
 ## `which <path>...`
 

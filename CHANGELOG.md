@@ -23,6 +23,8 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   before; each of them now also says never to edit `job.json`, the one fixed section they lacked.
   A lens agent kept under the old name `.claude/agents/reviewer-<name>.md` is no longer launched:
   `factory agents` shows the reviewer as `missing` and names the file to move.
+- `factory-plugin-advisor` treats `agents`, the new `factory` subcommand, as a word it writes
+  itself, so it is not masked for a user named `agents`.
 
 ### Fixed
 
