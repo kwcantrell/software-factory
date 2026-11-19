@@ -36,41 +36,24 @@ git clone https://github.com/kwcantrell/software-factory
 claude --plugin-dir ./software-factory/plugins/factory   # or load it for one session without installing
 ```
 
-### Upgrading from an older version
+### Upgrading (or downgrading) between versions
 
-Repositories that used the original plugin (`factory@kwcantrell-plugins`, from the
-`kwcantrell/kwcantrell-plugins` marketplace) or `factory@software-factory` 0.2.0 (both ran a Python
-CLI) switch over with one skill, run from the repository:
+Moving a repository between software-factory versions, up or down, is `factory-doctor migrate`, in
+the [factory-doctor](plugins/factory-doctor/README.md#migrate) plugin. It replaced `factory upgrade`
+and `/factory:upgrade`, which now only print where it moved (`factory upgrade` exits 2). It covers the
+moves `factory upgrade` made (from the original `factory@kwcantrell-plugins` plugin or
+`factory@software-factory` 0.2.0, which ran a Python CLI: settings switched, the `factory/` dir
+brought up to date, originals backed up first) and every later version, plans downgrades too, and
+updates the installed plugins with confirmation:
 
 ```
-/factory:upgrade
+claude plugin install factory-doctor@software-factory   # then, in Claude Code: "migrate this repo"
 ```
 
-It runs `factory upgrade`, a dry run that writes nothing, and shows the plan in three groups:
-
-- **settings**: in `.claude/settings.json` (project) and `.claude/settings.local.json` (local), an
-  `enabledPlugins` key `factory@<any marketplace but software-factory>` becomes
-  `factory@software-factory`, keeping its true/false value, and `extraKnownMarketplaces` gains
-  `software-factory` where it declared the old marketplace. Other plugins and marketplaces
-  (`base-setup@kwcantrell-plugins`, say) stay. User settings (`$CLAUDE_CONFIG_DIR/settings.json`,
-  else `~/.claude/settings.json`) change only with `--scope user`, which the skill asks about
-  separately. The originals of the settings files it changes are copied first to a private
-  `factory-upgrade-backup-<time>/` (mode 0700) in the repo's git dir, not under `factory/`, which
-  the dashboard serves, since settings can hold secrets; rewritten files keep their mode and
-  symlinks;
-- **runtime dir**: in `factory/`, each `job.json` gains the fields the current CLI writes that it
-  lacks (`followups: []` for the oldest jobs; existing values never change), `index.html` becomes
-  the current dashboard, `.gitignore` is ensured and the old `.lock` file goes. The originals are
-  copied to `factory/upgrade-backup-<time>/` first. Jobs in progress keep their worktree and branch;
-- **manual steps**, never done for you: `factory.json` keys the current CLI refuses, tracked files
-  that still name the old plugin or CLI (file:line), and the `claude plugin install` /
-  `claude plugin uninstall` commands to run per scope, then `/reload-plugins`.
-
-The skill asks before running `factory upgrade --apply`, and checks the result with a last dry run
-that should report `nothing to do`. By hand: `factory upgrade [--repo <path>] [--apply] [--scope
-project|local|user ...] [--json]`; it exits 0 when current or applied, 1 when it refuses (a file
-that does not parse, a factory command still holding the lock) and 2 on a usage error or outside a
-git checkout.
+The part that rewrites the runtime dir, `factory.json` and settings stays in this CLI, as the
+plumbing command `factory migrate-repo --from <version> --to <version> [--apply] [--repo <path>]
+[--scope project|local|user ...]` (one JSON report; `--versions` lists the versions it knows), which
+`factory-doctor migrate` runs through npx from the installed factory plugin.
 
 ## Use
 
@@ -125,7 +108,8 @@ or, equivalently, `node "$PLUGIN/src/cli.ts" status`. The examples below write i
 | `factory path` | print the job dir (or `--worktree`) |
 | `factory status` | list jobs, or show one |
 | `factory stats` | line metrics: proof and review pass rates, rounds, time, escalations |
-| `factory upgrade` | move a repo from an older factory to this version (dry run unless `--apply`) |
+| `factory upgrade` | moved: prints that `factory-doctor migrate` replaced it, and exits 2 |
+| `factory migrate-repo` | plumbing for `factory-doctor migrate`: move the `factory/` dir, `factory.json` and settings between versions (JSON; dry run unless `--apply`) |
 | `factory dashboard` | serve the dashboard |
 
 `factory <command> --help` gives a command's arguments.
@@ -256,20 +240,20 @@ plugins/factory/                           the plugin
   skills/approve                           human spec gate (user-invoked only)
   skills/ship                              human merge gate (user-invoked only)
   skills/dashboard                         start the dashboard server
-  skills/upgrade                           move a repo from an older factory plugin (factory upgrade)
+  skills/upgrade                           points to factory-doctor migrate (factory upgrade moved there)
   skills/agents                            make the project's own station agents (factory agents)
   agents/                                  builder, verifier, reviewer-{security,standards,behavior}: the shipped fallback
   templates/agents/                        builder, verifier and reviewer templates for project agents
   src/                                     the CLI: state machine, gates, remote state sync, station agents, dashboard server
   hooks/hooks.json, src/human-gate.ts      human-gate hook (merge, spec approval, rework, claim, close)
   dashboard/index.html                     the dashboard
-  test/                                    node:test suites (CLI, npx, hook, dashboard, compatibility, upgrade, agents, remote)
+  test/                                    node:test suites (CLI, npx, hook, dashboard, compatibility, migrate-repo, agents, remote)
 plugins/factory-plugin-builder/            builds plugins for this marketplace: new, check (the CLI convention), verify
 plugins/factory-dev/                       develops this repo: check (every CI gate), release (tag/version check, notes)
 plugins/factory-docs/                      keeps this repo's docs in sync with its code: which, stale, lint, gate
 plugins/factory-plugin-advisor/            tracks recurring friction with these plugins and drafts fixes: record, suggest, file
 plugins/factory-plugin-discover/           finds the plugin or skill that fits a software-factory task: catalog, match, install, a prompt hook
-plugins/factory-doctor/                    what an app needs to run, per profile, in .factory/doctor.json: check, scan, add, remove, init
+plugins/factory-doctor/                    what an app needs to run, per profile, in .factory/doctor.json: check, scan, add, remove, init; migrate (move a repo between versions)
 plugins/factory-signing/                   signs every commit Claude makes with your own SSH key: status, setup, allowed-signers, a commit hook
 docs/docs-map.json                         factory-docs' map: each doc and the globs of the code it describes
 templates/plugin/                          the template `npm run new-plugin -- <name>` copies (not in the marketplace)
