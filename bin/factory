@@ -352,9 +352,10 @@ def cmd_verdict(root, a):
 
 
 def cmd_human(root, a):
+    # Exit 2 like every other escalation, so the caller stops work on the job.
     with editing(root, a.job) as job:
         need_human(job, " ".join(a.reason))
-    print(f"{job['id']} flagged for a human")
+        raise Escalated(f"{job['id']} flagged for a human: {job['needs_human']}")
 
 
 def cmd_resume(root, a):

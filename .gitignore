@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Logs
+*.log
+logs/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/
+
+# The factory's own runtime state (jobs, worktrees, dashboard copy) when the
+# factory is run on this repository. `factory init` also writes factory/.gitignore.
+/factory/
+
+# Local Claude Code settings
+.claude/settings.local.json

@@ -19,11 +19,26 @@ intake ──▶ build ──▶ proof ──▶ review ──▶ ship ──▶
 | **Review** | `reviewer-security`, `reviewer-standards`, `reviewer-behavior` in parallel | `review-<round>-<name>.md`, each records its own verdict |
 | **Ship** | you | `ship.md` summary, then `/factory:ship` |
 
+## Install
+
+This repository is both the plugin and a marketplace named `software-factory`. In Claude Code:
+
+```
+/plugin marketplace add kwcantrell/software-factory
+/plugin install factory@software-factory
+```
+
+From a local checkout instead (for development, or to pin a version you have reviewed):
+
+```
+git clone https://github.com/kwcantrell/software-factory
+/plugin marketplace add ./software-factory        # then: /plugin install factory@software-factory
+claude --plugin-dir ./software-factory            # or load it for one session without installing
+```
+
 ## Use
 
 ```
-/plugin install factory --marketplace kwcantrell/kwcantrell-plugins   # or: claude --plugin-dir ./factory
-
 /factory:run add cursor pagination to GET /orders   # one request, one or more jobs
 /factory:run                                        # continue jobs in progress
 /factory:dashboard                                  # live board
@@ -73,7 +88,8 @@ Prompts ask; the `factory` CLI (`bin/factory`, on Claude's PATH while the plugin
 - `built` refuses with uncommitted changes, no commits, or no `build.md`.
 - `proof pass|fail` is recorded by the verifier, not the builder or supervisor.
 - `verdict` refuses without the reviewer's written review; a round with any `changes` sends the job back to build, then through proof again.
-- Three failed proofs or three review rounds without approval (configurable) flag the job **needs-human** and stop it.
+- Three failed proofs or three review rounds without approval (configurable) flag the job **needs-human** and stop it. So does `factory human <job> <reason>`, which any station runs when it needs a person.
+- Exit codes: 0 ok, 1 refused (a gate was not met), 2 escalated to a human.
 - `rework` (human) sends a job in `ship` back to `build` with a request saved as `rework-<round>.md`; the builder does what it asks, and the job is proven and reviewed again in a new round.
 - `merge` only works from `ship`. A `PreToolUse` hook turns any `factory merge`, `factory approve` or `factory rework` command into a permission prompt, so an agent cannot merge a job, approve a spec or reopen an approved job without a person saying yes.
 
@@ -97,16 +113,22 @@ factory followup drop 12 3 not worth it
 ## Layout
 
 ```
-.claude-plugin/plugin.json   manifest (plugin name: factory)
-skills/run                   the line: intake -> ship
-skills/approve               human spec gate (user-invoked only)
-skills/ship                  human merge gate (user-invoked only)
-skills/dashboard             start the dashboard server
-agents/                      builder, verifier, reviewer-{security,standards,behavior}
-bin/factory                  state machine and gates
-hooks/, scripts/             human-gate hook (merge and spec approval)
-dashboard/index.html         the dashboard
+.claude-plugin/plugin.json        manifest (plugin name: factory)
+.claude-plugin/marketplace.json   marketplace "software-factory", listing this plugin
+skills/run                        the line: intake -> ship
+skills/approve                    human spec gate (user-invoked only)
+skills/ship                       human merge gate (user-invoked only)
+skills/dashboard                  start the dashboard server
+agents/                           builder, verifier, reviewer-{security,standards,behavior}
+bin/factory                       state machine and gates
+hooks/, scripts/human-gate.sh     human-gate hook (merge, spec approval, rework)
+dashboard/index.html              the dashboard
+scripts/check.sh, tests/          every CI check in one command; CLI and release tests
+scripts/release.py                tag/version check and release notes from CHANGELOG.md
+docs/research/                    the build-vs-buy research behind the design
 ```
+
+Contributing: see [CONTRIBUTING.md](CONTRIBUTING.md). Changes are listed in [CHANGELOG.md](CHANGELOG.md). MIT licensed ([LICENSE](LICENSE)).
 
 ## Why it is built this way
 
