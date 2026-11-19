@@ -61,7 +61,7 @@ test('allowed-tools pre-approves only npx station commands, never merge, approve
 test('the upgrade skill points to factory-doctor migrate and pre-approves only factory upgrade --help', () => {
   const allowed = frontmatter(readFileSync(join(PLUGIN, 'skills', 'upgrade', 'SKILL.md'), 'utf8'))['allowed-tools'] ?? '';
   const rules = allowed.split(/,\s*(?=Bash\()/).map((r) => r.slice(`Bash(${INVOCATION} `.length, -1));
-  assert.deepEqual(rules, ['upgrade --help:*']);
+  assert.deepEqual(rules, ['upgrade --help', '--help:*']);
   assert.match(readFileSync(join(PLUGIN, 'skills', 'upgrade', 'SKILL.md'), 'utf8'), /factory-doctor migrate/);
 });
 
