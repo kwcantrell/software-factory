@@ -1,7 +1,7 @@
 ---
 name: factory-plugin-advisor
-description: Records friction with the software-factory marketplace plugins (factory, factory-plugin-builder, factory-dev, factory-docs and the rest) and suggests a plugin change once the same issue recurs. Use after working around a software-factory plugin's bug or gap, after doing by hand something one of those plugins should do, when a plugin skill's guidance was missing or wrong, when the user corrects how a plugin was used, and at the end of a task to check for recurring issues worth a fix.
-allowed-tools: Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory-plugin-advisor record:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory-plugin-advisor list:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory-plugin-advisor show:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory-plugin-advisor suggest:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory-plugin-advisor --help:*)
+description: Records friction with the software-factory marketplace plugins (factory, factory-plugin-builder, factory-dev, factory-docs and the rest) and suggests a plugin change once the same issue recurs; also reports how a repository's factory station agents (builder, verifier, reviewers) perform and suggests new or changed station agents. Use after working around a software-factory plugin's bug or gap, after doing by hand something one of those plugins should do, when a plugin skill's guidance was missing or wrong, when the user corrects how a plugin was used, at the end of a task to check for recurring issues worth a fix, after a factory job ships, and when the user asks how the factory line or its agents are doing.
+allowed-tools: Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory-plugin-advisor record:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory-plugin-advisor list:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory-plugin-advisor show:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory-plugin-advisor suggest:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory-plugin-advisor --help:*), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory-plugin-advisor stations --json), Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory-plugin-advisor stations suggest:*)
 ---
 
 # factory-plugin-advisor
@@ -109,6 +109,55 @@ When the user says an issue is not worth fixing, stop suggesting it (this asks f
 
 ```sh
 npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory-plugin-advisor dismiss <signature> --json
+```
+
+## Station agents: how the factory line is doing
+
+In a repository that runs the software factory, this plugin also reads the line's history
+(`factory/jobs/*/job.json` and each job's proof and review files) and reports, per station agent
+(builder, verifier, each reviewer; the project's own `.claude/agents/factory-<station>.md` or the
+shipped fallback, as `factory agents` resolves it): jobs handled, first-pass proof rate, proof
+failures, each reviewer's approve and changes counts, escalations and follow-ups. Run it **after a
+factory job ships** (merged or closed) and **when the user asks how the line or its agents are
+doing**, from the repository (or add `--repo <path>`):
+
+```sh
+npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory-plugin-advisor stations --json
+npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory-plugin-advisor stations suggest --json
+```
+
+`stations` only reads. `stations suggest` applies fixed, documented rules (see the plugin README:
+a theme no reviewer covers, the same proof failure again and again, a reviewer whose lens keeps
+being caught by others, proofs that behavior later finds an unmet criterion in), at least 3 jobs
+each by default (`--min <n>`), and writes a draft per suggestion to the advisor's log dir. It prints
+`suggestions`, each with `id`, `title`, `station`, `jobs`, `files` (what applying would write),
+`draft` (the draft's path) and `factoryRun`. If there are none, say nothing. Otherwise summarise
+each in a line or two in your own words, from the draft's rationale and evidence ("the verifier
+passed 3 jobs that behavior then sent back for an unmet criterion; I drafted a change to its agent,
+want to see it?"). These suggestions are about this repository only: never file them on GitHub.
+
+If the user wants one, show the dry run. It writes nothing and prints the files and the exact diff:
+
+```sh
+npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory-plugin-advisor stations apply <id> --json
+```
+
+Show the user the diff, and ask whether to apply **that** draft. Only after a clear yes for that
+specific id, apply it (this asks for permission). It writes only `.claude/agents/factory-*.md` and,
+for a new reviewer, `factory.json`'s `reviewers`; backs up any file it overwrites; runs
+`factory agents check` and puts everything back if that fails; and refuses a draft whose target
+changed since it was made (run `stations suggest` again) or that was already applied or dismissed:
+
+```sh
+npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory-plugin-advisor stations apply <id> --confirm --json
+```
+
+Then tell the user to review and commit `.claude/agents/` and `factory.json`: nothing is committed.
+The draft's `/factory:run` line is the alternative: it builds the same change through the factory.
+When the user does not want a suggestion, dismiss it (this asks for permission):
+
+```sh
+npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory-plugin-advisor stations dismiss <id> --json
 ```
 
 ## Exit codes

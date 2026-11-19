@@ -91,7 +91,7 @@
     "plugins/factory-plugin-builder/skills/build-plugin/SKILL.md": ["plugins/factory-plugin-builder/src/run.ts", "plugins/factory-plugin-builder/src/scaffold.ts", "plugins/factory-plugin-builder/src/check.ts", "plugins/factory-plugin-builder/src/verify.ts"],
     "plugins/factory-dev/skills/factory-dev/SKILL.md": ["plugins/factory-dev/src/run.ts", "plugins/factory-dev/src/check.ts", "plugins/factory-dev/src/release.ts"],
     "plugins/factory-docs/skills/factory-docs/SKILL.md": ["plugins/factory-docs/src/run.ts", "plugins/factory-docs/src/docs.ts"],
-    "plugins/factory-plugin-advisor/skills/factory-plugin-advisor/SKILL.md": ["plugins/factory-plugin-advisor/src/run.ts", "plugins/factory-plugin-advisor/src/advisor.ts", "plugins/factory-plugin-advisor/src/file.ts"],
+    "plugins/factory-plugin-advisor/skills/factory-plugin-advisor/SKILL.md": ["plugins/factory-plugin-advisor/src/run.ts", "plugins/factory-plugin-advisor/src/advisor.ts", "plugins/factory-plugin-advisor/src/file.ts", "plugins/factory-plugin-advisor/src/stations.ts", "plugins/factory-plugin-advisor/src/station-drafts.ts"],
     "plugins/factory-plugin-discover/skills/factory-plugin-discover/SKILL.md": ["plugins/factory-plugin-discover/src/run.ts", "plugins/factory-plugin-discover/src/match.ts", "plugins/factory-plugin-discover/src/install.ts"],
     "templates/plugin/skills/plugin-template/SKILL.md": ["templates/plugin/src/**"]
   },

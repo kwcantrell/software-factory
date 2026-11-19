@@ -19,6 +19,8 @@ import { fileIssue, type FileResult } from './file.ts';
 import { handleHookInput } from './hook.ts';
 import { type Env, marketplacePlugins, ownRoot, reservedNames } from './plugins.ts';
 import { identityOf, osIdentity, type SystemIdentity } from './redact.ts';
+import { applyStation, type ApplyResult, dismissStation, type Line, locateFactory, locateRepo, stationsReport, type StationsReport, suggestStations, type SuggestResult } from './station-drafts.ts';
+import { DEFAULT_MIN } from './stations.ts';
 import { Store } from './store.ts';
 
 export const CLI_NAME = 'factory-plugin-advisor';
@@ -37,6 +39,8 @@ export interface Io {
   pluginRoot?: string;
   /** The OS's view of the current user (home, username), masked with `env`'s; defaults to node:os. */
   system?: SystemIdentity;
+  /** Where `stations` looks for the repository without --repo; defaults to process.cwd(). */
+  cwd?: string;
 }
 
 export const USAGE = `Usage: ${CLI_NAME} <command> [options]
@@ -59,6 +63,19 @@ Commands:
   file <signature> [--repo <owner/name>] [--confirm]
                              Open the draft as a GitHub issue on ${MARKETPLACE_REPO} (public)
                              with gh. Without --confirm, only prints what would be filed.
+  stations [--repo <path>]   How each factory station agent (builder, verifier, every reviewer) has
+                             done across the repository's factory jobs: jobs, first-pass proof rate,
+                             proof failures, verdicts, escalations and follow-ups (read-only)
+  stations suggest [--min <n>] [--repo <path>]
+                             Apply the documented rules to that history and write a draft for each
+                             suggested new or changed station agent (default --min ${DEFAULT_MIN})
+  stations apply <id> [--confirm] [--repo <path>]
+                             Without --confirm, print the files and the diff a draft would write.
+                             With --confirm, write them into .claude/agents/ (and factory.json),
+                             back up what it overwrites, run factory agents check, roll back on
+                             failure. Never commits.
+  stations dismiss <id> [--repo <path>]
+                             Never suggest or apply this station suggestion
   hook                       Read a Claude Code PostToolUseFailure hook input on stdin and record a
                              failed marketplace CLI call (used by hooks/hooks.json; prints nothing).
                              A factory exit 2 (escalated to a human) is not a failure.
@@ -82,9 +99,17 @@ const COMMAND_OPTIONS: Record<string, readonly string[]> = {
   suggest: ['threshold'],
   dismiss: [],
   file: ['repo', 'confirm'],
+  stations: ['repo', 'min', 'confirm'],
   hook: [],
 };
 const POSITIONALS: Record<string, number> = { record: 0, list: 0, show: 1, suggest: 0, dismiss: 1, file: 1, hook: 0 };
+/** `stations` subcommands: the options and positionals (an id) each takes. */
+const STATIONS: Record<string, { options: readonly string[]; id: boolean }> = {
+  '': { options: ['repo'], id: false },
+  suggest: { options: ['repo', 'min'], id: false },
+  apply: { options: ['repo', 'confirm'], id: true },
+  dismiss: { options: ['repo'], id: true },
+};
 
 function version(): string {
   const pkg: unknown = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
@@ -162,6 +187,41 @@ function fileText(r: FileResult): string {
   ].join('\n');
 }
 
+const pct = (v: number | null): string => (v === null ? '-' : `${Math.round(v * 100)}%`);
+
+function stationsText(r: StationsReport): string {
+  const lines = [`${r.jobs} job${r.jobs === 1 ? '' : 's'} in ${r.factoryDir}${r.skipped.length > 0 ? ` (${r.skipped.length} unreadable skipped: ${r.skipped.join(', ')})` : ''}`];
+  for (const s of r.stations) {
+    lines.push(`${s.station}  ${s.agent} (${s.owner}${s.file === null ? '' : `, ${s.file}`})${s.note === null ? '' : `: ${s.note}`}`);
+    const parts = [`jobs ${s.jobs}`];
+    if (s.proof !== undefined) parts.push(`first-pass proof ${pct(s.proof.firstPassRate)}`, `proof passes ${s.proof.passes}`, `proof failures ${s.proof.failures}`);
+    if (s.reviews !== undefined) parts.push(`approve ${s.reviews.approve}`, `changes ${s.reviews.changes}`, `changes then approved after rework ${s.reviews.changesThenApproved} (${pct(s.reviews.changesThenApprovedRate)})`);
+    parts.push(`escalations ${s.escalations}`, `follow-ups ${s.followups}`);
+    lines.push(`  ${parts.join(', ')}`);
+    for (const f of s.proof?.failureReasons ?? []) lines.push(`  proof failure in ${f.job}: ${f.reason}`);
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+function stationSuggestText(r: SuggestResult): string {
+  const lines = r.suggestions.length === 0 ? [`No station suggestions: no rule has reached ${r.min} jobs (or failures) that has not been applied or dismissed.`] : [];
+  for (const s of r.suggestions) {
+    lines.push(`${s.id}  (${s.letter}) ${s.title}`, `  files: ${s.files.map((f) => `${f.path} (${f.action})`).join(', ')}`, `  draft: ${s.draft}`, `  ${s.factoryRun}`);
+  }
+  for (const p of r.problems) lines.push(`${p.id}  ${p.station}: the drafted agent failed factory agents check, so no draft was written: ${p.problem}`);
+  return `${lines.join('\n')}\n`;
+}
+
+function applyText(r: ApplyResult): string {
+  const lines = [r.applied ? `Applied ${r.id} to ${r.repo}. Review and commit .claude/agents/ and factory.json; nothing was committed.` : `Dry run: nothing was written. Applying ${r.id} to ${r.repo} would write:`];
+  for (const f of r.files) {
+    lines.push(`${f.action === 'create' ? 'create' : 'overwrite'} ${f.path}${f.backup === undefined ? '' : ` (backup: ${f.backup})`}`);
+    if (!r.applied) lines.push(f.diff.trimEnd());
+  }
+  if (!r.applied) lines.push(`Run stations apply ${r.id} --confirm to write exactly this.`);
+  return `${lines.join('\n')}\n`;
+}
+
 export function run(argv: readonly string[], io: Io): number {
   let parsed;
   try {
@@ -213,7 +273,16 @@ export function run(argv: readonly string[], io: Io): number {
     if (!allowed.includes(key)) return usageError(io, `${command} does not take --${key}`);
   }
   const wanted = POSITIONALS[command] ?? 0;
-  if (rest.length !== wanted) {
+  if (command === 'stations') {
+    const [sub = '', ...ids] = rest;
+    const spec = STATIONS[sub];
+    if (spec === undefined) return usageError(io, `unknown stations command '${sub}' (use stations, stations suggest, stations apply <id> or stations dismiss <id>)`);
+    for (const [key, value] of Object.entries(values)) {
+      if (['json', 'help', 'version'].includes(key) || value === undefined) continue;
+      if (!spec.options.includes(key)) return usageError(io, `stations${sub === '' ? '' : ` ${sub}`} does not take --${key}`);
+    }
+    if (ids.length !== (spec.id ? 1 : 0)) return usageError(io, spec.id ? `stations ${sub} takes exactly one <id>, got ${ids.length}` : `stations${sub === '' ? '' : ` ${sub}`} takes no arguments, got ${ids.length}`);
+  } else if (rest.length !== wanted) {
     return usageError(io, wanted === 0 ? `${command} takes no arguments, got ${rest.length}` : `${command} takes exactly one <signature>, got ${rest.length}`);
   }
   const out = (json: unknown, text: string): number => {
@@ -267,6 +336,26 @@ export function run(argv: readonly string[], io: Io): number {
       case 'dismiss': {
         const i = dismiss(store, rest[0] ?? '', now());
         return out({ signature: i.signature, dismissed: true }, `Dismissed ${i.signature}; it will not be suggested again.\n`);
+      }
+      case 'stations': {
+        const [sub = '', id = ''] = rest;
+        const min = positiveInt('min', values.min, DEFAULT_MIN);
+        const where = locateRepo(values.repo, env, io.cwd ?? process.cwd());
+        const line: Line = { ...where, factoryRoot: locateFactory(pluginRoot, env), env };
+        if (sub === '') {
+          const r = stationsReport(line);
+          return out(r, stationsText(r));
+        }
+        if (sub === 'suggest') {
+          const r = suggestStations(line, store, min, now(), identity);
+          return out(r, stationSuggestText(r));
+        }
+        if (sub === 'apply') {
+          const r = applyStation(line, store, id, values.confirm === true, now());
+          return out(r, applyText(r));
+        }
+        const r = dismissStation(line, store, id, now());
+        return out(r, `Dismissed station suggestion ${r.id}; it will not be suggested or applied again.\n`);
       }
       case 'file': {
         const r = fileIssue(store, rest[0] ?? '', { confirm: values.confirm === true, env, identity, ...(values.repo === undefined ? {} : { repo: values.repo }) });
