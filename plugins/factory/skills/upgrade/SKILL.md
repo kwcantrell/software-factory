@@ -6,6 +6,12 @@ allowed-tools: Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLU
 
 # Upgrade moved to factory-doctor migrate
 
+**The `factory` CLI.** Wherever this skill says `factory <command>`, run exactly this, from any directory, with no install or build step (never a bare `factory`):
+
+```sh
+npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory <command>
+```
+
 `factory upgrade` no longer changes anything: it prints that the command moved to
 `factory-doctor migrate`, with the command to run, and exits 2. This skill does the same.
 
