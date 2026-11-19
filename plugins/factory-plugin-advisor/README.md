@@ -48,16 +48,20 @@ and from a checkout you can run `node plugins/factory-plugin-advisor/src/cli.ts 
 | `stations suggest [--min <n>] [--repo <path>]` | Applies the station rules to that history and writes a draft per suggested new or changed station agent. |
 | `stations apply <id> [--confirm] [--repo <path>]` | Without `--confirm`, prints the files a draft would write and the diff, and writes nothing. With `--confirm`, applies it, with the safeguards below. |
 | `stations dismiss <id> [--repo <path>]` | Never suggests or applies that station suggestion again. |
+| `share list` | The remote factories you have acknowledged for sharing: normalised URL, branch, and when. See [Sharing with a team](#sharing-with-a-team-opt-in). |
+| `share allow [--repo <path>]` | Acknowledges the remote (URL and branch) that the repository's `factory.json` shares with, in your config dir, so sharing with it can start. Exits 1 when that `factory.json` does not turn sharing on. |
+| `share revoke <url> [<branch>]` | Withdraws an acknowledgement (every branch of `<url>` without `<branch>`): nothing more is shared with that remote or read from it. Exits 1 when it was not acknowledged. |
 | `hook` | Reads a Claude Code hook input on stdin and records a failed marketplace CLI call. Used by `hooks/hooks.json`; prints nothing and always exits 0. |
 
 Every command takes `--json` (one JSON value on stdout), `--help` and `--version`. Exit codes: 0
 success, 1 the command failed, 2 usage error. On a non-zero exit stdout is empty and the reason is on
 stderr.
 
-The skill pre-approves `record`, `list`, `show`, `suggest`, `--help`, `stations --json` and
-`stations suggest`. `file`, `dismiss`, `stations apply` and `stations dismiss` always ask for
-permission, and the skill has Claude show you the dry run and wait for an explicit yes before
-`file --confirm` or `stations apply <id> --confirm`.
+The skill pre-approves `record`, `list`, `show`, `suggest`, `--help`, `stations --json`,
+`stations suggest` and `share list`. `file`, `dismiss`, `stations apply`, `stations dismiss`,
+`share allow` and `share revoke` always ask for permission, and the skill has Claude show you the dry
+run and wait for an explicit yes before `file --confirm` or `stations apply <id> --confirm`, and ask
+you before `share allow`.
 
 ## The log
 
@@ -72,6 +76,7 @@ by accident. It also refuses a location that is, holds or sits inside the log di
 | --- | --- |
 | `occurrences.jsonl` | One occurrence per line: signature, plugin, kind, summary, optional detail, timestamp, source (`record` or `hook`), and for the hook the subcommand and exit code. Trimmed to the newest 2000 lines once it passes 1 MiB. |
 | `state.json` | Per issue: when it was last suggested (and at what count), dismissed, or filed (with the issue URL). Per station suggestion: drafted, applied or dismissed. |
+| `share-allowed.json` | The remote factories you acknowledged for sharing (`share allow`): normalised URL, branch and when. See [Sharing with a team](#sharing-with-a-team-opt-in). |
 | `stations/<repo key>/` | Station suggestions for one repository: `<id>.md` (the draft), `<id>.json` (the files it writes) and `backups/`. See [Station agents](#station-agents). |
 | `drafts/<signature>.md` | The draft suggestion: a `# title` line, then target, problem, evidence (occurrence count, first and last dates, the most recent occurrences), proposed change and the `/factory:run` line. This file is what `file` sends. |
 
@@ -137,7 +142,40 @@ the main checkout of the repository the command (or, for the hook, the Claude Co
 With `share` off, without a valid `remote`, or outside a repository, everything is exactly as
 described above: nothing is shared and nothing about the log changes.
 
-**Where.** With sharing on, the advisor keeps two files in an `advisor/` directory on the remote
+**Your acknowledgement.** `factory.json` is the repository's, and anyone can put one in a repository
+you clone. On its own it would let that repository send your occurrences to a URL it chose, and let
+whoever can push to that branch feed text to Claude through `list`, `show` and `suggest` and mark
+issues dismissed or filed. So `factory.json` only asks: nothing is shared until **you** acknowledge
+that exact remote, from the repository (or with `--repo <path>`):
+
+```sh
+node plugins/factory-plugin-advisor/src/cli.ts share allow --repo <path>
+```
+
+It records the remote's URL and branch in `share-allowed.json` in your config dir, never in the
+repository, and prints the public-remote warning below if it applies. The URL is normalised first:
+credentials (the user info before the host's `@` in a `scheme://` URL) are dropped and never stored,
+the scheme and host are lower-cased, trailing slashes and `.`/`..` path segments go. The host is read
+the way git reads it, and a `scheme://` URL that could be taken for another host is refused outright,
+never acknowledged and never matched: one with `?`, `#` or `\` straight after the host
+(`https://evil.example?@github.com/org/x` goes to `evil.example`), or with more than one `@` before
+it. For such a URL, `record`'s notice says it cannot be acknowledged instead. A `factory.json` that names
+another URL or branch needs another acknowledgement; `share list` shows what you have acknowledged
+and `share revoke <url> [<branch>]` withdraws it. Until the remote is acknowledged, or after it is
+revoked, `record`, the hook, `list`, `show`, `suggest`, `dismiss`, `file` and `stations` behave
+exactly as with sharing off: they write only the local log and state, push nothing, read nothing from
+the branch (no clone is even made) and change no shared state. `record` (not the hook, which stays
+silent) says so on stderr, once per Claude Code session and remote (outside a session, every run):
+
+```text
+factory-plugin-advisor: /path/to/repo/factory.json turns on sharing with git@github.com:org/project-factory.git (branch factory-state), but you have not acknowledged that remote, so nothing is shared or read from it; to share, run: factory-plugin-advisor share allow --repo /path/to/repo
+```
+
+The skill tells Claude to ask you before running `share allow`, never to run it on its own, and the
+command is not pre-approved, so it always asks for permission. Everything below applies only to an
+acknowledged remote.
+
+**Where.** With sharing on (and the remote acknowledged), the advisor keeps two files in an `advisor/` directory on the remote
 factory's state branch (`remote.branch` of `remote.url`), next to the job directories:
 
 | Path on the state branch | Contents |

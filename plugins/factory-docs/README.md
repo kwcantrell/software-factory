@@ -64,7 +64,8 @@ missing. In this repo each plugin's README covers its `src/**`, `package.json` a
 describes (the `factory-plugin-advisor` README also covers `plugins/factory/src/remote.ts`, which
 accepts its shared `advisor/` directory on the state branch), and each SKILL.md covers the CLI
 code it calls (the `factory-plugin-advisor` skill, for example, covers `run.ts`, `advisor.ts`,
-`file.ts`, `shared.ts`, and `stations.ts` and `station-drafts.ts` for its `stations` commands). `CLAUDE.md`
+`file.ts`, `shared.ts`, `store.ts` (where sharing waits for the user's acknowledgement), and
+`stations.ts` and `station-drafts.ts` for its `stations` commands). `CLAUDE.md`
 covers the `factory` sources whose conventions it states (`factory.ts`, `remote.ts`, `signing.ts`,
 `gate.ts`, `agents.ts`). The `factory` station templates (`plugins/factory/templates/agents/*.md`) are docs
 too: each covers `src/agents.ts`, which checks agents against it, and the shipped agent that must

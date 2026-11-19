@@ -96,26 +96,25 @@ export function factoryJsonPath(env: Env, cwd: string): string | null {
 }
 
 /**
- * The sharing settings, or null when sharing is off: no factory.json, `advisor.share` not true, or
- * no valid `remote` (the factory refuses such a factory.json itself; here it simply means local only).
+ * The sharing settings in the factory.json at `path`, or why there are none: no such file,
+ * `advisor.share` not true, or no valid `remote` (the factory refuses such a factory.json itself;
+ * here it simply means local only).
  */
-export function shareConfig(env: Env, cwd: string): ShareConfig | null {
-  const path = factoryJsonPath(env, cwd);
-  if (path === null) return null;
+export function readShareConfig(env: Env, path: string): ShareConfig | string {
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(path, 'utf8'));
-  } catch {
-    return null;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ENOENT' ? `no factory.json at ${path}` : `${path} is not valid JSON`;
   }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return `${path} is not a JSON object`;
   const cfg = parsed as Record<string, unknown>;
   const advisor = cfg.advisor;
-  if (typeof advisor !== 'object' || advisor === null || (advisor as Record<string, unknown>).share !== true) return null;
+  if (typeof advisor !== 'object' || advisor === null || (advisor as Record<string, unknown>).share !== true) return `${path} does not set "advisor": {"share": true}`;
   const remote = cfg.remote;
-  if (typeof remote !== 'object' || remote === null || Array.isArray(remote)) return null;
+  if (typeof remote !== 'object' || remote === null || Array.isArray(remote)) return `${path} has no remote factory ("remote": {"url", "branch"})`;
   const { url, branch } = remote as Record<string, unknown>;
-  if (typeof url !== 'string' || !urlOk(url) || typeof branch !== 'string' || !branchOk(branch)) return null;
+  if (typeof url !== 'string' || !urlOk(url) || typeof branch !== 'string' || !branchOk(branch)) return `${path} has no valid remote.url and remote.branch`;
   const abs = url.startsWith('./') || url.startsWith('../') ? resolve(dirname(path), url) : url;
   const out: ShareConfig = { url: abs, branch, configPath: path };
   const as = env[SHARE_AS_ENV];
@@ -126,9 +125,184 @@ export function shareConfig(env: Env, cwd: string): ShareConfig | null {
   return out;
 }
 
-/** The remote as it may be printed: credentials in an https URL (`user:token@`) are dropped. */
+/**
+ * What factory.json asks for: the sharing settings, or null when sharing is off. This is the
+ * repository's request only; whether anything is shared also needs the user's own acknowledgement
+ * of that remote (`allowed`).
+ */
+export function shareConfig(env: Env, cwd: string): ShareConfig | null {
+  const path = factoryJsonPath(env, cwd);
+  if (path === null) return null;
+  const out = readShareConfig(env, path);
+  return typeof out === 'string' ? null : out;
+}
+
+/**
+ * A `scheme://` URL split the way git (through curl) reads it: the authority ends at the first `/`,
+ * `?`, `#` or `\`, and only its last `@` ends the user info. Null for any other form of remote.
+ */
+function splitSchemeUrl(url: string): { scheme: string; userinfo: string | null; host: string; rest: string } | null {
+  const m = /^([A-Za-z][A-Za-z0-9+.-]*):\/\/([^/?#\\]*)([\s\S]*)$/.exec(url);
+  if (m === null) return null;
+  const authority = m[2] ?? '';
+  const at = authority.lastIndexOf('@');
+  return { scheme: m[1] ?? '', userinfo: at < 0 ? null : authority.slice(0, at), host: authority.slice(at + 1), rest: m[3] ?? '' };
+}
+
+/**
+ * Why a `scheme://` remote URL could be read as naming a host other than the one git connects to,
+ * or null when it cannot: a `?`, `#` or `\` before the path (`https://evil?@good/x` goes to `evil`),
+ * or more than one `@` in the authority. Such a URL is never acknowledged, nor matches an
+ * acknowledgement.
+ */
+export function ambiguousUrl(url: string): string | null {
+  const u = splitSchemeUrl(url.trim());
+  if (u === null) return null;
+  if (u.rest !== '' && !u.rest.startsWith('/')) return `its host part is followed by '${u.rest[0]}' rather than '/', so git connects to ${JSON.stringify(u.host)}, whatever follows`;
+  if (u.userinfo !== null && u.userinfo.includes('@')) return "its host part has more than one '@'";
+  return null;
+}
+
+/** The remote as it may be printed: credentials in a `scheme://` URL (`user:token@`) are dropped. */
 export function displayUrl(url: string): string {
-  return url.replace(/^([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^@/]*@/, '$1');
+  const u = splitSchemeUrl(url);
+  return u === null || u.userinfo === null ? url : `${u.scheme}://${u.host}${u.rest}`;
+}
+
+// ------------------------------------------------------------------ the user's acknowledgement
+
+// factory.json belongs to the repository, so a cloned or untrusted repository can ask for sharing
+// and choose where it goes. Nothing is shared with, and nothing is read from, a remote the user has
+// not acknowledged themselves (`share allow`), in a file in the advisor's own config dir that no
+// repository can write. The acknowledgement is for one normalised URL and one branch: a factory.json
+// that names another needs another.
+
+/** The acknowledged remotes, in the advisor's config dir. */
+export const ALLOW_FILE = 'share-allowed.json';
+/** The sessions already told that sharing is configured but not acknowledged. */
+export const NOTICE_FILE = 'share-noticed.json';
+
+export interface Allowed {
+  /** The remote's URL, normalised (normaliseUrl): no credentials, lower-case scheme and host, no trailing `/`. */
+  url: string;
+  branch: string;
+  /** When the user acknowledged it (ISO). */
+  at: string;
+}
+
+/**
+ * The form a remote is acknowledged and compared in: a `scheme://` URL, split as git reads it
+ * (splitSchemeUrl), loses its user info (never a token on disk) and gets a lower-case scheme and host; an scp-like `[user@]host:path` a lower-case
+ * host; an absolute path is resolved (`..`, `.` and `//` folded). Trailing slashes go.
+ */
+export function normaliseUrl(url: string): string {
+  const u = url.trim();
+  const strip = (path: string): string => path.replace(/\/+$/, '');
+  const scheme = splitSchemeUrl(u);
+  if (scheme !== null) return `${scheme.scheme.toLowerCase()}://${scheme.host.toLowerCase()}${strip(scheme.rest)}`;
+  if (isAbsolute(u)) return resolve(u);
+  if (/^[A-Za-z]:[\\/]/.test(u)) return u;
+  const scp = /^((?:[^@/]*@)?)([^/:]+):(.*)$/.exec(u);
+  if (scp !== null) return `${scp[1] ?? ''}${(scp[2] ?? '').toLowerCase()}:${strip(scp[3] ?? '')}`;
+  return strip(u);
+}
+
+/** The acknowledged remotes; an empty list when the file is missing or unreadable, and only well-formed entries. */
+export function readAllowed(configDir: string): Allowed[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(join(configDir, ALLOW_FILE), 'utf8'));
+  } catch {
+    return [];
+  }
+  const remotes = typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>).remotes : undefined;
+  if (!Array.isArray(remotes)) return [];
+  const out: Allowed[] = [];
+  for (const r of remotes as unknown[]) {
+    if (typeof r !== 'object' || r === null) continue;
+    const { url, branch, at } = r as Record<string, unknown>;
+    if (typeof url === 'string' && urlOk(url) && ambiguousUrl(url) === null && typeof branch === 'string' && branchOk(branch) && typeof at === 'string' && ISO.test(at)) out.push({ url, branch, at });
+  }
+  return out;
+}
+
+/** Whether the user acknowledged exactly this remote URL and branch. */
+export function allowed(configDir: string, share: ShareConfig): boolean {
+  if (ambiguousUrl(share.url) !== null) return false;
+  const url = normaliseUrl(share.url);
+  return readAllowed(configDir).some((a) => a.url === url && a.branch === share.branch);
+}
+
+function writeAllowed(configDir: string, list: Allowed[], files: Files): void {
+  files.ensureDir(configDir);
+  files.writeFile(join(configDir, ALLOW_FILE), `${JSON.stringify({ version: 1, remotes: list }, null, 2)}\n`);
+}
+
+/** Acknowledges the remote factory.json names; `added` is false when it already was. */
+export function allowRemote(configDir: string, share: ShareConfig, files: Files, now: Date): { entry: Allowed; added: boolean } {
+  const why = ambiguousUrl(share.url);
+  if (why !== null) throw new Error(`refusing to acknowledge ${displayUrl(share.url)}: ${why}`);
+  const list = readAllowed(configDir);
+  const url = normaliseUrl(share.url);
+  const have = list.find((a) => a.url === url && a.branch === share.branch);
+  if (have !== undefined) return { entry: have, added: false };
+  const entry: Allowed = { url, branch: share.branch, at: now.toISOString() };
+  writeAllowed(configDir, [...list, entry], files);
+  return { entry, added: true };
+}
+
+/**
+ * Removes the acknowledgement of `url` (normalised; a ./ or ../ path is taken against `cwd`) on
+ * `branch`, or on every branch when none is given. Returns what was removed.
+ */
+export function revokeRemote(configDir: string, url: string, branch: string | undefined, files: Files, cwd: string): Allowed[] {
+  const list = readAllowed(configDir);
+  const target = normaliseUrl(url.startsWith('./') || url.startsWith('../') ? resolve(cwd, url) : url);
+  const gone = list.filter((a) => a.url === target && (branch === undefined || a.branch === branch));
+  if (gone.length > 0) writeAllowed(configDir, list.filter((a) => !gone.includes(a)), files);
+  return gone;
+}
+
+/**
+ * True the first time `key` is seen in this Claude Code session (CLAUDE_CODE_SESSION_ID), recorded in
+ * the JSON list at `path`; outside a session, every run is its own session and this is always true.
+ */
+function firstInSession(path: string, key: string, env: Env, files: Files): boolean {
+  const session = env.CLAUDE_CODE_SESSION_ID;
+  if (session === undefined || session === '') return true;
+  let seen: string[] = [];
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'));
+    if (Array.isArray(parsed)) seen = parsed.filter((s): s is string => typeof s === 'string');
+  } catch {
+    // never said yet
+  }
+  const id = createHash('sha256').update(`${session}\n${key}`).digest('hex').slice(0, 16);
+  if (seen.includes(id)) return false;
+  try {
+    files.ensureDir(dirname(path));
+    files.writeFile(path, `${JSON.stringify([...seen, id].slice(-20))}\n`);
+  } catch {
+    // said anyway; it may be said again
+  }
+  return true;
+}
+
+/** The `share allow` command line for the repository whose factory.json is `configPath`. */
+export function allowCommand(share: ShareConfig): string {
+  const repo = dirname(share.configPath);
+  return `factory-plugin-advisor share allow --repo ${/^[A-Za-z0-9_./-]+$/.test(repo) ? repo : `'${repo.replaceAll("'", `'\\''`)}'`}`;
+}
+
+/**
+ * The one-line notice that factory.json asks for sharing the user has not acknowledged, once per
+ * Claude Code session and remote; null when it was said already in this session.
+ */
+export function unacknowledgedNotice(configDir: string, share: ShareConfig, env: Env, files: Files): string | null {
+  if (!firstInSession(join(configDir, NOTICE_FILE), `${normaliseUrl(share.url)}\n${share.branch}`, env, files)) return null;
+  const why = ambiguousUrl(share.url);
+  if (why !== null) return `${share.configPath} turns on sharing with ${displayUrl(share.url)} (branch ${share.branch}), but that URL cannot be acknowledged (${why}), so nothing is shared or read from it`;
+  return `${share.configPath} turns on sharing with ${displayUrl(share.url)} (branch ${share.branch}), but you have not acknowledged that remote, so nothing is shared or read from it; to share, run: ${allowCommand(share)}`;
 }
 
 // ------------------------------------------------------------------ the public-remote warning
@@ -138,8 +312,8 @@ export const PUBLIC_HOSTS = ['github.com', 'gitlab.com', 'bitbucket.org', 'codeb
 
 /** The host of a git URL (`scheme://[user@]host[:port]/...` or scp-like `[user@]host:path`), or null for a local path. */
 export function remoteHost(url: string): string | null {
-  const scheme = /^([A-Za-z][A-Za-z0-9+.-]*):\/\/(?:[^@/]*@)?(\[[^\]]+\]|[^/:]+)/.exec(url);
-  if (scheme !== null) return (scheme[1] ?? '').toLowerCase() === 'file' ? null : (scheme[2] ?? '').toLowerCase();
+  const scheme = splitSchemeUrl(url);
+  if (scheme !== null) return scheme.scheme.toLowerCase() === 'file' ? null : (/^(\[[^\]]*\]|[^:]*)/.exec(scheme.host)?.[1] ?? '').toLowerCase();
   if (isAbsolute(url) || url.startsWith('.') || /^[A-Za-z]:[\\/]/.test(url)) return null;
   // scp-like syntax: a colon before the first slash.
   const scp = /^(?:[^@/]*@)?([^/:]+):/.exec(url);
