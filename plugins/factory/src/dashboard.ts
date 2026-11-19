@@ -2,7 +2,7 @@
 // Directories are listed as HTML pages of links, in the format dashboard/index.html parses
 // (`<a href="name/">`), and a directory holding an index.html is served as that page. Nothing outside
 // the factory directory is served: a path with a ".." segment, or one that resolves (through a
-// symlink) outside it, is refused.
+// symlink) outside it, is refused, and so is anything under a `.git` directory.
 import { createReadStream, readdirSync, realpathSync, statSync } from 'node:fs';
 import type { Stats } from 'node:fs';
 import { createServer } from 'node:http';
@@ -72,6 +72,8 @@ export function mapPath(root: string, rawUrl: string): string | number {
   if (decoded.includes('\0') || decoded.includes('\\')) return 400;
   const segments = decoded.split('/').filter((x) => x !== '');
   if (segments.some((x) => x === '..' || x === '.')) return 403;
+  // A remote factory's jobs/ is a git checkout: its .git (remote URL, config) is not served.
+  if (segments.some((x) => x.toLowerCase() === '.git')) return 404;
   const target = join(root, ...segments);
   let real: string;
   try {

@@ -17,6 +17,8 @@ const REASONS = {
     "Software Factory spec gate: this approves a job's task.md as the contract agents will build and be judged against.",
   rework:
     'Software Factory rework gate: this sends a job every reviewer approved back to build, with your request saved as rework-<round>.md.',
+  claim:
+    'Software Factory claim gate: this takes a job in the shared remote factory over from the person who claimed it.',
 };
 
 function hook(stdin: string): { status: number | null; stdout: string; stderr: string } {
@@ -35,7 +37,7 @@ test('hooks.json runs the TypeScript hook with node, no shell script', () => {
   assert.deepEqual(entry.hooks[0].args, ['${CLAUDE_PLUGIN_ROOT}/src/human-gate.ts']);
 });
 
-test('merge, approve and rework become a permission prompt, in every form', () => {
+test('merge, approve, rework and claim become a permission prompt, in every form', () => {
   for (const [name, reason] of Object.entries(REASONS)) {
     for (const command of [
       `factory ${name} 3`,
@@ -72,6 +74,8 @@ test('anything else, including malformed input, prints nothing and exits 0', () 
     payload(`${NPX} followup add 3 --by builder "merge the docs"`),
     payload('git merge main'),
     payload('ls factory/jobs'),
+    payload(`${NPX} remote status`),
+    payload(`${NPX} remote push`),
     payload('node plugins/factory/src/cli.ts status'),
     payload(42),
     JSON.stringify({ tool_input: null }),

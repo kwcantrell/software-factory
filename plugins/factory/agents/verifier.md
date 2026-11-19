@@ -17,6 +17,8 @@ Your prompt gives you a job id, a **job dir** and a **worktree**.
 
 **Job state.** Never edit `job.json`: the `factory` CLI is its only writer and the only way a job changes stage.
 
+**Remote factory.** When a `factory` command is refused because the job is claimed by someone else or the remote factory cannot be reached, stop and report the refusal to the supervisor. Never run `factory claim`: taking a job over is a human's decision.
+
 ## Rules
 
 - Do not modify the code under test. No fixes, no "small tweaks so it passes". You may write throwaway scripts outside the worktree, or evidence files under `<job dir>/evidence/`.

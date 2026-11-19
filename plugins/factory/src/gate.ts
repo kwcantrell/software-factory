@@ -1,9 +1,10 @@
 // The factory's human gates, decided for a Claude Code PreToolUse hook on Bash (hooks/hooks.json runs
 // human-gate.ts with node, which calls decide()). Any Bash call that runs `factory merge`,
-// `factory approve` or `factory rework` (through npx, a path, or the entry script `src/cli.ts`) is
-// turned into a permission prompt, so no agent can ship a job, approve a spec or reopen an approved
-// job without a person saying yes. Reads the PreToolUse payload on stdin; for anything else, and for
-// a payload it cannot read, it prints nothing and exits 0.
+// `factory approve`, `factory rework` or `factory claim` (through npx, a path, or the entry script
+// `src/cli.ts`) is turned into a permission prompt, so no agent can ship a job, approve a spec,
+// reopen an approved job or take a job over from another person without a person saying yes. Reads
+// the PreToolUse payload on stdin; for anything else, and for a payload it cannot read, it prints
+// nothing and exits 0.
 /** Checked in this order; the first that matches gives the reason. */
 export const GATES: readonly (readonly [string, string])[] = [
   [
@@ -17,6 +18,10 @@ export const GATES: readonly (readonly [string, string])[] = [
   [
     'rework',
     'Software Factory rework gate: this sends a job every reviewer approved back to build, with your request saved as rework-<round>.md.',
+  ],
+  [
+    'claim',
+    'Software Factory claim gate: this takes a job in the shared remote factory over from the person who claimed it.',
   ],
 ];
 

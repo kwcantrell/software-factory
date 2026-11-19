@@ -6,6 +6,7 @@ import { serveDashboard } from './dashboard.ts';
 import {
   cmdApprove,
   cmdBuilt,
+  cmdClaim,
   cmdClose,
   cmdConfig,
   cmdFollowupAdd,
@@ -18,6 +19,8 @@ import {
   cmdNote,
   cmdPath,
   cmdProof,
+  cmdRemotePush,
+  cmdRemoteStatus,
   cmdRework,
   cmdResume,
   cmdRound,
@@ -31,6 +34,7 @@ import {
   factoryDir,
   loadConfig,
   Refused,
+  syncForRead,
 } from './factory.ts';
 import type { Args, Command, Io } from './factory.ts';
 import { cmdUpgrade, SCOPES, UsageProblem } from './upgrade.ts';
@@ -79,9 +83,12 @@ interface Spec {
   fn?: Command | 'dashboard' | 'upgrade';
   sub?: Spec[];
   extra?: Record<string, unknown>;
+  /** A read command: with a remote factory it pulls first, unless --offline. */
+  read?: boolean;
 }
 
 const JOB: Positional = { name: 'job', help: 'job id, number or unique prefix' };
+const OFFLINE: Option = { name: 'offline', help: 'remote factory: do not pull; show the last-pulled state' };
 
 const FOLLOWUP: Spec[] = [
   {
@@ -102,8 +109,9 @@ const FOLLOWUP: Spec[] = [
     name: 'list',
     help: 'open follow-ups, for one job or all jobs',
     positionals: [{ name: 'job', nargs: '?', help: 'job id, number or unique prefix' }],
-    options: [{ name: 'all', help: 'include done and dropped ones' }, { name: 'json' }],
+    options: [{ name: 'all', help: 'include done and dropped ones' }, { name: 'json' }, OFFLINE],
     fn: cmdFollowupList,
+    read: true,
   },
   ...(
     [
@@ -123,6 +131,20 @@ const FOLLOWUP: Spec[] = [
       extra: { action: name },
     }),
   ),
+];
+
+const REMOTE: Spec[] = [
+  {
+    name: 'status',
+    help: 'the remote, branch, ahead/behind counts and last sync',
+    options: [OFFLINE],
+    fn: cmdRemoteStatus,
+  },
+  {
+    name: 'push',
+    help: 'publish the local jobs/ to the configured remote (ids and history kept; never worktrees)',
+    fn: cmdRemotePush,
+  },
 ];
 
 const AGENTS: Spec[] = [
@@ -198,7 +220,25 @@ export const COMMANDS: Spec[] = [
     positionals: [JOB, { name: 'reason', nargs: '*' }],
     fn: cmdClose,
   },
-  { name: 'config', help: 'print the effective configuration (factory.json over defaults)', fn: cmdConfig },
+  {
+    name: 'claim',
+    help: "human: take over a job someone else claimed (remote factory)",
+    positionals: [JOB],
+    options: [{ name: 'take-over', help: 'move the claim to you; recreates the worktree from the code remote' }],
+    fn: cmdClaim,
+  },
+  {
+    name: 'remote',
+    help: 'the remote factory: status, or push local jobs to it',
+    sub: REMOTE,
+  },
+  {
+    name: 'config',
+    help: 'print the effective configuration (factory.json over defaults)',
+    options: [OFFLINE],
+    fn: cmdConfig,
+    read: true,
+  },
   {
     name: 'note',
     help: "set the job's activity line",
@@ -221,21 +261,24 @@ export const COMMANDS: Spec[] = [
     name: 'path',
     help: 'print the job dir (or --worktree)',
     positionals: [JOB],
-    options: [{ name: 'worktree' }],
+    options: [{ name: 'worktree' }, OFFLINE],
     fn: cmdPath,
+    read: true,
   },
   {
     name: 'status',
     help: 'list jobs, or show one',
     positionals: [{ name: 'job', nargs: '?' }],
-    options: [{ name: 'json' }],
+    options: [{ name: 'json' }, OFFLINE],
     fn: cmdStatus,
+    read: true,
   },
   {
     name: 'stats',
     help: 'line metrics: proof and review pass rates, rounds, time, escalations',
-    options: [{ name: 'json' }],
+    options: [{ name: 'json' }, OFFLINE],
     fn: cmdStats,
+    read: true,
   },
   {
     name: 'upgrade',
@@ -257,8 +300,9 @@ export const COMMANDS: Spec[] = [
   {
     name: 'dashboard',
     help: 'serve the dashboard',
-    options: [{ name: 'port', value: 'int', default: 8787 }],
+    options: [{ name: 'port', value: 'int', default: 8787 }, OFFLINE],
     fn: 'dashboard',
+    read: true,
   },
 ];
 
@@ -539,6 +583,7 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
     const root = ensure(factoryDir());
     const a: Args = { ...parsed.args, cfg: loadConfig(root) };
     const fn = parsed.spec.fn;
+    if (parsed.spec.read) syncForRead(root, a, io);
     if (fn === 'dashboard') {
       await serveDashboard(root, a.port as number, io);
       return EXIT.ok;

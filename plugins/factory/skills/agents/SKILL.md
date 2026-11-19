@@ -22,6 +22,8 @@ Each template has two kinds of sections:
 - **Fixed** (between `<!-- fixed:<id> -->` and `<!-- /fixed -->`): the line's non-negotiables - the npx form of the CLI, handoff files only in the absolute job dir (and deleting a stray copy only if it is the station's own), recording its own result and follow-ups, never editing `job.json`, a reviewer's single lens. Never reword, shorten or drop them, and never weaken them elsewhere in the file (a rule that contradicts one is a weakening too). `factory agents check` compares them to the template, ignoring only whitespace and the marker comments; an agent that fails is not used.
 - **Fill** (between `<!-- fill:<id> ... -->` and `<!-- /fill -->`, each holding a `TODO:` line): what this repository needs - its stack, how to run its checks, its conventions and, for a reviewer, what the lens looks for here. These are the only sections you write.
 
+Outside both, each template also says what a station does when a remote factory refuses it (a job claimed by someone else, a remote it cannot reach): stop and report. Leave that as written.
+
 ## Steps
 
 1. Run `factory agents` to see which stations use a project agent and which the shipped fallback.

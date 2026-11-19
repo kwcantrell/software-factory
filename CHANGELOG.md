@@ -6,6 +6,29 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added
+
+- Remote factory: an optional `remote` key in `factory.json`, `{"url": "<git url or path>",
+  "branch": "<name>"}`, shares the job state through a git branch (a separate repo or an orphan
+  branch of the project repo) so a team runs one line and the history survives. `factory/jobs/`
+  becomes a checkout of that branch; worktrees stay local and are never stored. `factory init`
+  creates the branch (an orphan) or clones it. Every state-changing command pulls first, commits
+  only its job's directory as `factory: <command> <job id>` and pushes, retrying a lost push race;
+  the same job changed on both sides is refused, never merged, and two people creating jobs at once
+  get distinct ids. With no network a state-changing command refuses and changes nothing; read
+  commands (`status`, `followup list`, `stats`, `path`, `config`, `dashboard`) take `--offline` and
+  fall back to the last-pulled state. `start` records the job's `owner` (shown on the dashboard and
+  by `factory status <id>`); commands on a job someone else owns are refused except `approve`,
+  `merge`, `rework` and `close`, and the new human-gated `factory claim <id> --take-over` moves the
+  claim, recreating the worktree from the code remote. `factory remote status` and `factory remote
+  push` (publish an existing local factory) round it off. Without `remote`, nothing changes. Station
+  agents now say to stop and report when a remote factory refuses them, and never to run `claim`.
+
+### Changed
+
+- `factory config` prints the new `remote` key (`null` by default), and the dashboard server no
+  longer serves anything under a `.git` directory.
+
 ## [0.4.0] - 2026-11-19
 
 Station agents tailored to your repository are new in this release: run `/factory:agents` to

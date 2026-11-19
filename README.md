@@ -99,7 +99,7 @@ or, equivalently, `node "$PLUGIN/src/cli.ts" status`. The examples below write i
 
 | Command | What it does |
 | --- | --- |
-| `factory init` | create `./factory` and install the dashboard |
+| `factory init` | create `./factory` and install the dashboard; with a `remote`, create or clone the shared state branch |
 | `factory new` | intake: open a job |
 | `factory start` | intake -> build: needs `task.md`; creates the worktree |
 | `factory spec` | ask a human to approve `task.md` before building |
@@ -113,6 +113,9 @@ or, equivalently, `node "$PLUGIN/src/cli.ts" status`. The examples below write i
 | `factory merge` | human gate: merge an approved job and clean up |
 | `factory rework` | human: send an approved job back to build |
 | `factory close` | human: abandon a job without merging |
+| `factory claim` | human gate: take over a job someone else claimed (`--take-over`; [remote factory](#remote-factory)) |
+| `factory remote status` | the remote, branch, ahead/behind counts and last sync |
+| `factory remote push` | publish the local `factory/jobs/` to the configured remote |
 | `factory config` | print the effective configuration (`factory.json` over defaults) |
 | `factory note` | set the job's activity line |
 | `factory followup` | record, list and resolve follow-ups (see below) |
@@ -137,7 +140,8 @@ Optional. Put a `factory.json` at the repository root and commit it; anything yo
   "max_review_rounds": 3,
   "max_proof_attempts": 3,
   "spec_gate": false,
-  "specs_dir": null
+  "specs_dir": null,
+  "remote": null
 }
 ```
 
@@ -145,6 +149,8 @@ Optional. Put a `factory.json` at the repository root and commit it; anything yo
 - **`max_review_rounds`**, **`max_proof_attempts`** - how many tries before a job is flagged needs-human.
 - **`spec_gate`** - when true, every job stops after intake until you approve its `task.md` with `/factory:approve <id>`. Off by default; you can also ask for it per request ("...and let me review the spec first").
 - **`specs_dir`** - the repo-relative directory where the project keeps living behavior specs (say `"docs/specs"`), or `null` if it keeps none. When set, intake reads the specs a change touches, lists them in `task.md`, and gives each one whose behavior changes an acceptance criterion to update it in the same job. Unset by default.
+
+- **`remote`** - share the job state with your team through a git remote: `{"url": "<git url or path>", "branch": "<branch>"}`, both required and nothing else allowed; `null` (the default) keeps the factory local. `url` is anything `git clone` accepts except a `<helper>::` transport or a value starting with `-`; a path starting with `./` or `../` is relative to `factory.json`'s directory. `branch` is a plain branch name such as `"factory-state"`. See [Remote factory](#remote-factory).
 
 `factory config` prints the effective settings. Unknown keys and bad values are refused, so a typo cannot silently change the line.
 
@@ -162,9 +168,30 @@ A project agent has no `${CLAUDE_PLUGIN_ROOT}` of its own, so `/factory:run` giv
 
 ## Dashboard
 
-One self-contained HTML file, no build step and no dependencies. `factory dashboard [--port 8787]` copies it into the project's `factory/` directory and serves that directory on 127.0.0.1 only, listing directories the way the page expects and refusing any path outside `factory/`.
+One self-contained HTML file, no build step and no dependencies. `factory dashboard [--port 8787]` copies it into the project's `factory/` directory and serves that directory on 127.0.0.1 only, listing directories the way the page expects and refusing any path outside `factory/` or inside a `.git` directory.
 
-Jobs are cards that move across the stage columns. Each review round is a row of reviewer chips that fill in as verdicts land. Jobs that need a human are highlighted and counted in the header and the tab title. Click a card to read its markdown files, follow-ups and history. The **Follow-ups** view in the header lists every job's follow-ups in one place (open by default, or all), and cards show their open count. The header shows three line metrics once there is data: first-pass proof rate, review rounds to approval, and time to approval. The page reads `jobs/*/job.json` through the server's directory listing every two seconds, so the files are the only source of truth.
+Jobs are cards that move across the stage columns. Each review round is a row of reviewer chips that fill in as verdicts land. Jobs that need a human are highlighted and counted in the header and the tab title. Click a card to read its markdown files, follow-ups and history. The **Follow-ups** view in the header lists every job's follow-ups in one place (open by default, or all), and cards show their open count. In a remote factory, cards and the job drawer show who claimed the job; older `job.json` files without an owner show none. The header shows three line metrics once there is data: first-pass proof rate, review rounds to approval, and time to approval. The page reads `jobs/*/job.json` through the server's directory listing every two seconds, so the files are the only source of truth.
+
+## Remote factory
+
+By default the factory is private to one checkout: everything lives in the gitignored `factory/`, and deleting it deletes the job history. With `remote` set in `factory.json`, the job state lives on a git branch instead, so a team runs one shared line and the history survives.
+
+**Setup.** Pick where the state goes and commit `factory.json`:
+
+- a separate repo, say `org/project-factory`: `{"remote": {"url": "git@github.com:org/project-factory.git", "branch": "factory-state"}}`. An empty repo is fine;
+- or an orphan branch of the project repo itself: the same `url` as the project's `origin`, with a branch of its own such as `"factory-state"`. Never the code's branch: a branch holding anything but job directories and the state README is refused.
+
+Then each person runs `factory init`. The first creates the branch (an orphan with only a README, so it shares no history with the code) and pushes it; everyone else clones it. The state checkout is the factory dir's `jobs/` directory itself (`factory/jobs/`, a git checkout of the branch), so job dirs keep their paths and the dashboard works unchanged.
+
+**What is stored.** One directory per job at the top of the branch: `job.json`, the station markdown files (`task.md`, `build.md`, `proof.md`, reviews, `ship.md`, `rework-*.md`) and `evidence/`, plus a README. Never the builders' worktrees: they stay in `factory/worktrees/`, outside the state checkout, and only reach others through the job's code branch (`factory/<id>`), which is pushed to the code remote like any branch. **A public remote makes every job's content public**: the tasks, reviews and follow-ups. Use a private repo unless that is what you want.
+
+**Sync.** Every command that changes a job (`new`, `start`, `spec`, `approve`, `built`, `proof`, `round`, `verdict`, `human`, `resume`, `merge`, `rework`, `close`, `note`, `followup add/done/drop`, `claim`) pulls first, applies its change, commits only that job's directory as `factory: <command> <job id>` with your git identity as the author, and pushes. Station files a stage writes (say `build.md`) are committed by the command that records the stage (`built`). If another push landed first, the command pulls and retries (up to 5 times); two people creating jobs at once get two distinct ids, the second renumbered. If the same job changed on both sides, the command is refused (exit 1, naming the job and the files): your change is not applied, the job is reset to the remote's version, the version you tried is kept under `factory/conflicts/`, and the checkout matches the remote. Nothing is ever merged silently. Within one machine the factory lock still serializes commands.
+
+**Offline.** A command that changes a job refuses when the remote cannot be reached, says so, and changes nothing; run it again when you are back online. Read commands (`status`, `followup list`, `stats`, `path`, `config`, `dashboard`) pull first; with `--offline`, or when the remote is unreachable, they show the last-pulled state and say so on stderr. The dashboard pulls once when it starts.
+
+**Claims.** `factory start` records who claimed the job in `job.json` (`owner`: the git `user.name` and `user.email` its commits carry), and the dashboard and `factory status <id>` show it. Anyone can read a job, but commands that change it are refused for everyone but its owner (exit 1, naming the owner), except the human gates `approve`, `merge`, `rework` and `close`, which any person may run. `factory claim <id> --take-over` moves the claim to you and records it in the history. It is a human command: the gate hook makes Claude Code ask before it runs, and the station agents are told never to run it. Taking over a job in build or later recreates its worktree on your machine from `factory/<id>` on the code remote (`origin` of your checkout); if the previous owner never pushed that branch, it is refused and says they must push it first.
+
+**Migration.** `factory remote push` publishes an existing local `factory/jobs/` to a newly configured remote, keeping its ids and history (never the worktrees); it refuses a job number the remote already uses for a different job. It also publishes local changes from an attached checkout, say jobs changed while `remote` was removed. Until it runs, commands that change a job refuse to mix local and remote state and point at it. Removing `remote` from `factory.json` goes back to local mode with the last-pulled jobs intact, and nothing is pushed from then on. `factory remote status` shows the remote, the branch, ahead/behind counts against the remote, uncommitted files and the last sync.
 
 ## How it is enforced
 
@@ -178,11 +205,12 @@ Prompts ask; the `factory` CLI (`plugins/factory/src/`, run through `npx` as abo
 - Three failed proofs or three review rounds without approval (configurable) flag the job **needs-human** and stop it. So does `factory human <job> <reason>`, which any station runs when it needs a person.
 - Exit codes: 0 ok, 1 refused (a gate was not met), 2 escalated to a human.
 - `rework` (human) sends a job in `ship` back to `build` with a request saved as `rework-<round>.md`; the builder does what it asks, and the job is proven and reviewed again in a new round.
-- `merge` only works from `ship`. A `PreToolUse` hook turns any `factory merge`, `factory approve` or `factory rework` command into a permission prompt, so an agent cannot merge a job, approve a spec or reopen an approved job without a person saying yes.
+- `merge` only works from `ship`. A `PreToolUse` hook turns any `factory merge`, `factory approve`, `factory rework` or `factory claim` command into a permission prompt, so an agent cannot merge a job, approve a spec, reopen an approved job or take a job over from another person without a person saying yes.
+- In a [remote factory](#remote-factory), commands that change a job refuse while someone else owns it, and refuse rather than merge when the same job changed on the remote.
 
 Run `factory --help` for every command. `factory status` is the text version of the dashboard, and `factory stats` prints the line metrics (add `--json` to track them over time).
 
-Runtime state lives in `<project>/factory/` (`jobs/`, `worktrees/`, `index.html`) and ignores itself in git.
+Runtime state lives in `<project>/factory/` (`jobs/`, `worktrees/`, `index.html`) and ignores itself in git. In a [remote factory](#remote-factory), `jobs/` is a git checkout of the state branch.
 
 ## Follow-ups
 
@@ -212,10 +240,10 @@ plugins/factory/                           the plugin
   skills/agents                            make the project's own station agents (factory agents)
   agents/                                  builder, verifier, reviewer-{security,standards,behavior}: the shipped fallback
   templates/agents/                        builder, verifier and reviewer templates for project agents
-  src/                                     the CLI: state machine, gates, station agents, dashboard server
-  hooks/hooks.json, src/human-gate.ts      human-gate hook (merge, spec approval, rework)
+  src/                                     the CLI: state machine, gates, remote state sync, station agents, dashboard server
+  hooks/hooks.json, src/human-gate.ts      human-gate hook (merge, spec approval, rework, claim)
   dashboard/index.html                     the dashboard
-  test/                                    node:test suites (CLI, npx, hook, dashboard, compatibility, upgrade, agents)
+  test/                                    node:test suites (CLI, npx, hook, dashboard, compatibility, upgrade, agents, remote)
 plugins/factory-plugin-builder/            builds plugins for this marketplace: new, check (the CLI convention), verify
 plugins/factory-dev/                       develops this repo: check (every CI gate), release (tag/version check, notes)
 plugins/factory-docs/                      keeps this repo's docs in sync with its code: which, stale, lint, gate
