@@ -34,6 +34,8 @@ export function sandbox(extraEnv: Env = {}, pluginRoot: string = PLUGIN_ROOT): S
       env,
       now: () => now,
       pluginRoot,
+      // Only the sandbox's own HOME/USER count as the current user, never whoever runs the tests.
+      system: {},
     });
     return { code, stdout, stderr };
   };

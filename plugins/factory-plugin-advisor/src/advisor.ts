@@ -1,6 +1,6 @@
 // record, list, show, suggest and dismiss: the occurrence log grouped into issues, and the draft
 // suggestions written for issues that recur.
-import { cleanDetail, cleanSummary, oneLine, cap, signature as signatureOf } from './redact.ts';
+import { cleanDetail, cleanSummary, oneLine, cap, identityOf, type Identity, maskPersonal, signature as signatureOf } from './redact.ts';
 import { CliError, type Occurrence, type State, type Store } from './store.ts';
 
 export const KINDS = {
@@ -52,10 +52,10 @@ export function validateInput(input: RecordInput): void {
 
 export class UsageError extends CliError {}
 
-export function record(store: Store, input: RecordInput, now: Date, source: Occurrence['source'] = 'record'): RecordResult {
+export function record(store: Store, input: RecordInput, now: Date, source: Occurrence['source'] = 'record', identity: Identity = identityOf(process.env)): RecordResult {
   validateInput(input);
-  const summary = cleanSummary(input.summary);
-  const detail = input.detail === undefined ? undefined : cleanDetail(input.detail);
+  const summary = cleanSummary(input.summary, identity);
+  const detail = input.detail === undefined ? undefined : cleanDetail(input.detail, identity);
   const sig = signatureOf(input.plugin, input.kind, summary);
   const occurrence: Occurrence = {
     signature: sig,
@@ -224,14 +224,26 @@ function titlePrefix(target: Target): string {
   return `factory-plugin-advisor: ${who}: `;
 }
 
-/** The summary as the title quotes it after `prefix`: capped on its own, so it is a clean field too. */
-function titleSummary(prefix: string, summary: string): string {
-  return cap(inline(summary), Math.max(TITLE_MAX - [...prefix].length, 20));
+/**
+ * A stored summary as a draft quotes it: one line, backticks made quotes, personal details masked
+ * again (a log written before masking existed still holds them, and once its backticks are gone a
+ * mention in a code span would link).
+ */
+function quoted(summary: string, identity: Identity): string {
+  return maskPersonal(inline(summary), identity);
 }
 
-export function draftTitle(issue: Issue, target: Target): string {
+/**
+ * The summary as the title quotes it after `prefix`: capped on its own, so it is a clean field too.
+ * Masked after the cut as well, which can turn an npm scope (`@scope/name`) into a mention.
+ */
+function titleSummary(prefix: string, summary: string, identity: Identity): string {
+  return maskPersonal(cap(quoted(summary, identity), Math.max(TITLE_MAX - [...prefix].length, 20)), identity);
+}
+
+export function draftTitle(issue: Issue, target: Target, identity: Identity = identityOf(process.env)): string {
   const prefix = titlePrefix(target);
-  return `${prefix}${titleSummary(prefix, issue.summary)}`;
+  return `${prefix}${titleSummary(prefix, issue.summary, identity)}`;
 }
 
 function capitalise(text: string): string {
@@ -267,32 +279,38 @@ export const FIELD_LINES: ReadonlyArray<readonly [before: RegExp, after: RegExp]
  * where appended text (` (exit 2, ...)`, `". factory-plugin-advisor signature ...`) sits next to a
  * redacted value and can read as part of it.
  */
-export function draftFields(plugin: string, occurrences: readonly Occurrence[]): string[] {
+export function draftFields(plugin: string, occurrences: readonly Occurrence[], identity: Identity = identityOf(process.env)): string[] {
   const prefixes = [
     titlePrefix({ kind: 'existing', plugin, text: '' }),
     titlePrefix({ kind: 'new', plugin: plugin === 'none' ? null : plugin, text: '' }),
   ];
   const out = new Set<string>();
   for (const o of occurrences) {
-    out.add(inline(o.summary));
-    for (const prefix of prefixes) out.add(titleSummary(prefix, o.summary));
-    for (const d of o.detail?.split('\n') ?? []) out.add(detailLine(d));
+    out.add(quoted(o.summary, identity));
+    for (const prefix of prefixes) out.add(titleSummary(prefix, o.summary, identity));
+    for (const d of o.detail?.split('\n') ?? []) out.add(detailLine(d, identity));
   }
   out.delete('');
   return [...out];
 }
 
-function detailLine(line: string): string {
-  return line.replaceAll('`', "'");
+function detailLine(line: string, identity: Identity): string {
+  return maskPersonal(line.replaceAll('`', "'"), identity);
 }
 
 /** The draft markdown: the first line is `# <title>`, the rest is the issue body. */
-export function renderDraft(issue: Issue, occurrences: readonly Occurrence[], target: Target, filedUrl?: string): { title: string; text: string; factoryRun: string } {
-  const title = draftTitle(issue, target);
+export function renderDraft(
+  issue: Issue,
+  occurrences: readonly Occurrence[],
+  target: Target,
+  filedUrl?: string,
+  identity: Identity = identityOf(process.env),
+): { title: string; text: string; factoryRun: string } {
+  const title = draftTitle(issue, target, identity);
   const subcommand = [...occurrences].reverse().find((o) => o.subcommand !== undefined)?.subcommand;
   const change = proposedChange(issue.kind, target, subcommand);
   const kindText = isKind(issue.kind) ? KINDS[issue.kind] : issue.kind;
-  const factoryRun = `/factory:run ${target.kind === 'existing' ? `${target.plugin}` : 'new plugin'}: ${oneLine(change)} Recurring issue (${issue.kind}, seen ${issue.count} times, ${day(issue.firstSeen)} to ${day(issue.lastSeen)}): "${inline(issue.summary)}". factory-plugin-advisor signature ${issue.signature}.`;
+  const factoryRun = `/factory:run ${target.kind === 'existing' ? `${target.plugin}` : 'new plugin'}: ${oneLine(change)} Recurring issue (${issue.kind}, seen ${issue.count} times, ${day(issue.firstSeen)} to ${day(issue.lastSeen)}): "${quoted(issue.summary, identity)}". factory-plugin-advisor signature ${issue.signature}.`;
   const newest = [...occurrences].sort((a, b) => b.at.localeCompare(a.at)).slice(0, EVIDENCE_MAX);
   const lines = [
     `# ${title}`,
@@ -306,7 +324,7 @@ export function renderDraft(issue: Issue, occurrences: readonly Occurrence[], ta
     '',
     '## Problem',
     '',
-    `${capitalise(kindText)}: ${inline(issue.summary)}`,
+    `${capitalise(kindText)}: ${quoted(issue.summary, identity)}`,
     '',
     '## Evidence',
     '',
@@ -320,9 +338,9 @@ export function renderDraft(issue: Issue, occurrences: readonly Occurrence[], ta
     const extra = [o.subcommand === undefined ? '' : `command \`${inline(o.subcommand)}\``, o.exitCode === undefined ? '' : `exit ${o.exitCode}`, o.source === 'hook' ? 'recorded by the hook' : '']
       .filter((x) => x !== '')
       .join(', ');
-    lines.push(`- ${o.at}: ${inline(o.summary)}${extra === '' ? '' : ` (${extra})`}`);
+    lines.push(`- ${o.at}: ${quoted(o.summary, identity)}${extra === '' ? '' : ` (${extra})`}`);
     if (o.detail !== undefined && o.detail !== '') {
-      for (const d of o.detail.split('\n')) lines.push(`  > ${detailLine(d)}`);
+      for (const d of o.detail.split('\n')) lines.push(`  > ${detailLine(d, identity)}`);
     }
   }
   lines.push('', '## Proposed change', '', change, '', '## Factory request', '', 'Paste this into Claude Code to build the change through the factory:', '', '```', factoryRun, '```', '');
@@ -334,7 +352,7 @@ export function renderDraft(issue: Issue, occurrences: readonly Occurrence[], ta
  * `threshold` since they were last suggested; dismissed issues never. Writes each draft and records
  * the suggestion.
  */
-export function suggest(store: Store, threshold: number, known: readonly string[], now: Date): Suggestion[] {
+export function suggest(store: Store, threshold: number, known: readonly string[], now: Date, identity: Identity = identityOf(process.env)): Suggestion[] {
   const all = store.occurrences();
   const state = store.state();
   const out: Suggestion[] = [];
@@ -344,7 +362,7 @@ export function suggest(store: Store, threshold: number, known: readonly string[
     if (s.suggestedCount !== undefined && issue.count < s.suggestedCount + threshold) continue;
     const target = targetOf(issue.plugin, known);
     const occurrences = all.filter((o) => o.signature === issue.signature);
-    const { title, text, factoryRun } = renderDraft(issue, occurrences, target, s.filed?.url);
+    const { title, text, factoryRun } = renderDraft(issue, occurrences, target, s.filed?.url, identity);
     const draft = store.writeDraft(issue.signature, text);
     state.issues[issue.signature] = { ...s, suggestedCount: issue.count, suggestedAt: now.toISOString() };
     out.push({ signature: issue.signature, plugin: issue.plugin, kind: issue.kind, summary: issue.summary, count: issue.count, firstSeen: issue.firstSeen, lastSeen: issue.lastSeen, target, title, draft, factoryRun });

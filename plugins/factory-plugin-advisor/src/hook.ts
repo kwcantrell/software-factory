@@ -8,11 +8,11 @@
 // so a `factory` exit 2 is not recorded; its exit 1 (a gate refused) is.
 //
 // It never prints, never exits non-zero and never throws: any problem means nothing is recorded. It
-// keeps only the plugin, the subcommand, the exit code and the redacted first line of the CLI's own
-// error message; never the command line or the command's stdout.
+// keeps only the plugin, the subcommand, the exit code and the redacted and masked first line of the
+// CLI's own error message; never the command line or the command's stdout.
 import { record } from './advisor.ts';
 import { marketplacePlugins, type Env } from './plugins.ts';
-import { cleanSummary } from './redact.ts';
+import { cleanSummary, identityOf, type Identity, NO_IDENTITY } from './redact.ts';
 import { Store } from './store.ts';
 import { quickReject } from './hook-filter.ts';
 
@@ -90,7 +90,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
  * CLI, or is `factory` escalating to a human (exit 2). When one command runs several marketplace
  * CLIs, the last one is taken (the exit status of a `;`-separated or piped command is the last one's).
  */
-export function failureOf(input: unknown, bins: ReadonlyMap<string, string>, plugins: readonly string[]): CliFailure | null {
+export function failureOf(input: unknown, bins: ReadonlyMap<string, string>, plugins: readonly string[], identity: Identity = NO_IDENTITY): CliFailure | null {
   if (!isObject(input) || input.hook_event_name !== 'PostToolUseFailure' || input.tool_name !== 'Bash') return null;
   if (input.is_interrupt === true) return null;
   const toolInput = input.tool_input;
@@ -109,7 +109,7 @@ export function failureOf(input: unknown, bins: ReadonlyMap<string, string>, plu
   const own = rest.find((line) => prefixes.some((p) => line.startsWith(p)));
   const npm = rest.find((line) => /^npm (error|ERR!) /.test(line));
   const line = own ?? npm;
-  const message = line === undefined ? undefined : cleanSummary(line);
+  const message = line === undefined ? undefined : cleanSummary(line, identity);
   return { ...call, exitCode, ...(message === undefined || message === '' ? {} : { message }) };
 }
 
@@ -122,17 +122,18 @@ export function failureSummary(f: CliFailure): string {
  * The whole hook: parse the input, record the failure if it is one. Swallows every error, because a
  * hook that fails shows a notice in the conversation; losing one occurrence is the better outcome.
  */
-export function handleHookInput(raw: string, env: Env, pluginRoot: string, now: Date): CliFailure | null {
+export function handleHookInput(raw: string, env: Env, pluginRoot: string, now: Date, identity: Identity = identityOf(env)): CliFailure | null {
   try {
     if (quickReject(raw)) return null;
     const { bins, plugins } = marketplacePlugins(pluginRoot, env);
-    const failure = failureOf(JSON.parse(raw), bins, plugins);
+    const failure = failureOf(JSON.parse(raw), bins, plugins, identity);
     if (failure === null) return null;
     record(
       new Store(env),
       { plugin: failure.plugin, kind: 'cli-failure', summary: failureSummary(failure), exitCode: failure.exitCode, ...(failure.subcommand === undefined ? {} : { subcommand: failure.subcommand }) },
       now,
       'hook',
+      identity,
     );
     return failure;
   } catch {

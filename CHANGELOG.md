@@ -107,6 +107,17 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   missing git identity, a hook, a lock) escalates with git's own error text as the reason in
   `job.json` and on the dashboard.
 
+### Security
+
+- `factory-plugin-advisor` masks personal details before it stores anything, because its drafts
+  are filed on a public repo: the home part of a path (`/home/<user>`, `/Users/<user>`, `/root`,
+  `C:\Users\<user>`, and the current `$HOME`) becomes `~`, the current username `[user]` (as a
+  whole word, unless shorter than 3 characters or a common word such as `runner`), emails
+  `[email]`, and GitHub `@mentions`, which would notify that user, `@[user]`. This covers `record`
+  (flags and `--stdin`) and the hook's error line. Drafts mask their quoted text again, so logs
+  written before this change give clean drafts, and `file` refuses (exit 1, naming the line) a
+  draft that still holds a home-dir path, an email or a linkable mention.
+
 ## [0.2.0] - 2026-11-14
 
 The first versioned release of the plugin: a multi-agent line that runs work through

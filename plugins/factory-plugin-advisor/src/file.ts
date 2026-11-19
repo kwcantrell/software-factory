@@ -1,9 +1,9 @@
 // file: opens a draft as a GitHub issue with `gh issue create`. A dry run unless confirmed; the draft
 // is checked for secret-looking text again first (each stored field on its own, the rest without
-// them); the body goes to gh on stdin and the title as one argv element, with no shell in between.
+// them), and for home-dir usernames, emails and linkable mentions; the body goes to gh on stdin and the title as one argv element, with no shell in between.
 import { spawnSync } from 'node:child_process';
 import { draftFields, FIELD_LINES, issues, MARKETPLACE_REPO, resolveSignature, UsageError } from './advisor.ts';
-import { containsSecret, redact } from './redact.ts';
+import { containsPersonal, containsSecret, identityOf, type Identity, redact } from './redact.ts';
 import { CliError, type Occurrence, type Store } from './store.ts';
 import type { Env } from './plugins.ts';
 
@@ -80,11 +80,23 @@ export function withoutPluginName(text: string, plugin: string): string {
  * plugin's name are taken out, or `[0]` when only text that spans lines (a PEM key) does. Empty when
  * the draft may be filed.
  */
-export function draftSecrets(text: string, plugin: string, occurrences: readonly Occurrence[]): number[] {
-  const rest = withoutPluginName(withoutFields(text, draftFields(plugin, occurrences)), plugin);
+export function draftSecrets(text: string, plugin: string, occurrences: readonly Occurrence[], identity: Identity = identityOf(process.env)): number[] {
+  const rest = withoutPluginName(withoutFields(text, draftFields(plugin, occurrences, identity)), plugin);
   const lines = secretLines(rest);
   if (lines.length > 0) return lines;
   return containsSecret(rest) ? [0] : [];
+}
+
+/**
+ * The draft's lines (1-based) that still hold a home-dir path (any user's, or the current user's
+ * home), an email address or a mention GitHub would link. The whole draft is checked, stored fields
+ * included: `renderDraft` masks them, so one that still holds such a detail was edited in.
+ */
+export function draftPersonal(text: string, identity: Identity = identityOf(process.env)): number[] {
+  return text
+    .split('\n')
+    .map((line, i) => (containsPersonal(line, identity) ? i + 1 : 0))
+    .filter((n) => n > 0);
 }
 
 /** Line numbers (1-based, in the draft) that still hold secret-looking text. */
@@ -95,7 +107,8 @@ export function secretLines(text: string): number[] {
     .filter((n) => n > 0);
 }
 
-export function fileIssue(store: Store, wanted: string, options: { repo?: string; confirm: boolean; env: Env }): FileResult {
+export function fileIssue(store: Store, wanted: string, options: { repo?: string; confirm: boolean; env: Env; identity?: Identity }): FileResult {
+  const identity = options.identity ?? identityOf(options.env);
   const repo = options.repo ?? MARKETPLACE_REPO;
   if (!REPO.test(repo)) throw new UsageError(`--repo must be <owner>/<name>, got ${JSON.stringify(repo)}`);
   const state = store.state();
@@ -106,11 +119,17 @@ export function fileIssue(store: Store, wanted: string, options: { repo?: string
   if (state.issues[sig]?.dismissedAt !== undefined) throw new CliError(`issue ${sig} is dismissed; not filing it`);
   const text = store.readDraft(sig);
   if (text === null) throw new CliError(`issue ${sig} has no draft yet; run suggest first`);
-  const found = draftSecrets(text, issue.plugin, store.occurrences().filter((o) => o.signature === sig));
+  const found = draftSecrets(text, issue.plugin, store.occurrences().filter((o) => o.signature === sig), identity);
   const whole = found.filter((n) => n > 0);
   if (found.length > 0) {
     throw new CliError(
       `refusing to file ${sig}: the draft at ${store.draftPath(sig)} still has secret-looking text${whole.length > 0 ? ` on line ${whole.join(', ')}` : ''}; edit it out or dismiss the issue`,
+    );
+  }
+  const personal = draftPersonal(text, identity);
+  if (personal.length > 0) {
+    throw new CliError(
+      `refusing to file ${sig}: the draft at ${store.draftPath(sig)} still has a home-dir username, email address or @mention on line ${personal.join(', ')}; edit it out or dismiss the issue`,
     );
   }
   const { title, body } = splitDraft(text);

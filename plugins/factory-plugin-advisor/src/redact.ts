@@ -2,6 +2,8 @@
 // and which occurrences count as the same issue. Pattern-based, because this CLI never sees the
 // secrets themselves, only text that might contain them. Over-redacting is the safe failure.
 import { createHash } from 'node:crypto';
+import { homedir, userInfo } from 'node:os';
+import type { Env } from './plugins.ts';
 
 export const REDACTED = '[redacted]';
 export const SUMMARY_MAX = 200;
@@ -180,17 +182,139 @@ function cleanMultiline(text: string): string {
   return text.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trimEnd();
 }
 
-/**
- * The stored summary: redacted, made one line, redacted again and capped. Redacting before the cap
- * means a cut can't expose part of a secret; redacting again after joining lines means the stored
- * value is clean on its own (`containsSecret` is false), which `file` relies on.
- */
-export function cleanSummary(text: string): string {
-  return cap(redact(oneLine(redact(text))), SUMMARY_MAX);
+// Personal details. Drafts are filed on a public repo, so the local username in a home-dir path, the
+// current user's home and username, email addresses and GitHub @mentions (which also notify that
+// user) are masked before anything is stored, again when a draft is rendered, and `file` refuses a
+// draft that still holds one.
+
+export const EMAIL = '[email]';
+export const USER = '[user]';
+export const MENTION = '@[user]';
+
+/** Usernames too common (or too short, under 3 characters) to mask as a whole word everywhere. */
+const COMMON_USERS = new Set(['root', 'admin', 'user', 'runner', 'node', 'ubuntu']);
+
+/** Who the current user is: their home directories and usernames, as masking needs them. */
+export interface Identity {
+  homes: string[];
+  users: string[];
 }
 
-export function cleanDetail(text: string): string {
-  return cap(redact(cleanMultiline(redact(text))), DETAIL_MAX);
+/** What the OS says about the current user. Tests pass their own, so the real user never matters. */
+export interface SystemIdentity {
+  homedir?: string;
+  username?: string;
+}
+
+export function osIdentity(): SystemIdentity {
+  const out: SystemIdentity = {};
+  try {
+    out.homedir = homedir();
+  } catch {
+    // no home directory: nothing to mask from it
+  }
+  try {
+    out.username = userInfo().username;
+  } catch {
+    // no passwd entry: nothing to mask from it
+  }
+  return out;
+}
+
+/** `$HOME`, `$USER`, `$USERNAME` and the OS's view of the current user. */
+export function identityOf(env: Env, system: SystemIdentity = osIdentity()): Identity {
+  const homes = new Set<string>();
+  for (const h of [env.HOME, system.homedir]) {
+    const home = (h ?? '').replace(/[\\/]+$/, '');
+    // A home of `/` (or a relative one) would match far too much; `/root` and longer are kept.
+    if (home.length >= 3 && /^(\/|[A-Za-z]:[\\/])/.test(home)) homes.add(home);
+  }
+  const users = new Set<string>();
+  for (const u of [system.username, env.USER, env.USERNAME]) {
+    if (u !== undefined && [...u].length >= 3 && !COMMON_USERS.has(u.toLowerCase()) && !/\s/.test(u)) users.add(u);
+  }
+  const byLength = (a: string, b: string): number => b.length - a.length;
+  return { homes: [...homes].sort(byLength), users: [...users].sort(byLength) };
+}
+
+/** No identity: only the generic rules (home-dir paths, emails, mentions) apply. */
+export const NO_IDENTITY: Identity = { homes: [], users: [] };
+
+function escapeRe(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** What may follow the end of a home directory: the next path separator, or the end of the path. */
+const PATH_END = '(?=$|[\\\\/\\s\'"`:;,()<>\\[\\]{}|])';
+/** One path segment: a username. */
+const SEGMENT = '[^\\\\/\\s\'"`:;,()<>\\[\\]{}|]+';
+/** Either slash. */
+const SLASH = '[\\\\/]';
+
+/** `/home/<user>`, `/Users/<user>`, `/root` and `C:\Users\<user>` (either slash) at the start of a path. */
+const HOME_PATH = new RegExp(`(?<![\\w.~-])(?:/home/${SEGMENT}|/[Uu]sers/${SEGMENT}|/root|[A-Za-z]:${SLASH}[Uu][Ss][Ee][Rr][Ss]${SLASH}${SEGMENT})${PATH_END}`, 'g');
+
+/**
+ * An email address: a local part (not preceded by another local-part character), `@`, and a domain
+ * ending in a 2+ letter TLD. npm scopes (`@types/node`) have no local part, `pkg@1.2.3` no TLD; a
+ * local part of exactly `git` is the SSH user of a remote (`git@github.com:owner/repo`) and is kept.
+ */
+const EMAIL_RE = /(?<![\w.%+-])([A-Za-z0-9._%+-]+)@(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}(?![\w-])/g;
+
+/**
+ * A GitHub mention outside a backtick code span or a URL: `@` plus 1 to 39 letters, digits or
+ * hyphens, not preceded by a word character, `/` or `.`, and not followed by `/` (an npm scope) or
+ * more name characters. Code spans and URLs (`https://[redacted]@host/x`, where the `@` ends the
+ * credentials) are matched first and kept as they are.
+ */
+const MENTION_RE = /(`[^`\n]*`|\b[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s<>"'`]*)|(?<![\w/.])@[A-Za-z0-9-]{1,39}(?![A-Za-z0-9/-])/g;
+
+function homeRule(home: string): RegExp {
+  // On Windows a home can be written with either slash; the rest of the path is kept as it is.
+  const body = home.split(/[\\/]/).map(escapeRe).join(SLASH);
+  return new RegExp(`(?<![\\w.~-])${body}${PATH_END}`, 'gi');
+}
+
+function userRule(user: string): RegExp {
+  // A whole word: no word character, `.`, `-` or `[` before it, no word character or `-` after it.
+  return new RegExp(`(?<![\\w.\\[-])${escapeRe(user)}(?![\\w-])`, 'gi');
+}
+
+/**
+ * The text with personal details masked: the current user's home (`$HOME`, `os.homedir()`) and any
+ * `/home/<user>`, `/Users/<user>`, `/root` or `C:\Users\<user>` become `~`, emails `[email]`, the
+ * current username as a whole word `[user]`, and GitHub mentions `@[user]`. Idempotent.
+ */
+export function maskPersonal(text: string, identity: Identity = NO_IDENTITY): string {
+  let out = text;
+  for (const home of identity.homes) out = out.replace(homeRule(home), '~');
+  out = out.replace(HOME_PATH, '~');
+  out = out.replace(EMAIL_RE, (m, local: string) => (local === 'git' ? m : EMAIL));
+  for (const user of identity.users) out = out.replace(userRule(user), USER);
+  return out.replace(MENTION_RE, (m, kept: string | undefined) => (kept !== undefined ? m : MENTION));
+}
+
+/**
+ * Whether `text` still holds a home-dir path, the current user's home, an email or a linkable mention.
+ * The bare username is not checked here: a draft's own text names plugins and commands, which a
+ * username can equal.
+ */
+export function containsPersonal(text: string, identity: Identity = NO_IDENTITY): boolean {
+  return maskPersonal(text, { homes: identity.homes, users: [] }) !== text;
+}
+
+/**
+ * The stored summary: redacted, masked, made one line, masked and redacted again, and capped.
+ * Redacting before the cap means a cut can't expose part of a secret; redacting again after joining
+ * lines means the stored value is clean on its own (`containsSecret` is false), which `file` relies
+ * on. Redacting comes before masking so URL credentials (`https://user:pass@host`) go whole.
+ */
+export function cleanSummary(text: string, identity: Identity = NO_IDENTITY): string {
+  return cap(redact(maskPersonal(oneLine(maskPersonal(redact(text), identity)), identity)), SUMMARY_MAX);
+}
+
+export function cleanDetail(text: string, identity: Identity = NO_IDENTITY): string {
+  return cap(redact(maskPersonal(cleanMultiline(maskPersonal(redact(text), identity)), identity)), DETAIL_MAX);
 }
 
 /**
