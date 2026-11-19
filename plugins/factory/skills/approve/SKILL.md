@@ -26,3 +26,5 @@ Otherwise:
 2. Show the user the goal, the acceptance criteria and the out-of-scope list from `task.md`, verbatim and without commentary. These are what they are approving.
 3. Run `factory approve <id>`. Claude Code will ask the user to confirm this command (the hook asks the same for merge, rework, claim and close); that prompt is the gate, so do not try to avoid it. In a remote factory any person may approve, whoever claimed the job.
 4. Tell the user it is approved and that `/factory:run <id>` continues the job (`factory agents` shows the builder, verifier and reviewers it will launch). Do not start building from this skill.
+
+If `factory` refuses `factory.json` (an unknown key) or a `job.json` it cannot read, the repo was likely written by another software-factory version: point the user to `factory-doctor migrate` (the factory-doctor skill), which replaced `factory upgrade`, instead of editing either file.

@@ -3,6 +3,7 @@ import { parseArgs } from 'node:util';
 import { check, reportText } from './check.ts';
 import type { Env } from './claude.ts';
 import { add, addProfile, type AddOptions, changeText, fromProposal, init, remove, UsageError } from './edit.ts';
+import { apply as applyMigration, applyText, MigrateRefused, MigrateUsage, type MigrateOptions, plan as planMigration, planText, SCOPES, type Scope, updatePlugins, updateText } from './migrate.ts';
 import { locate } from './repo.ts';
 import { DEFAULT_FILE, type DoctorFile, KINDS, load, parents, Refused, resolve as resolveProfile } from './requirements.ts';
 import { proposals, scan, scanText } from './scan.ts';
@@ -44,6 +45,18 @@ Commands:
   remove <kind> <name> --profile <p>
                       Remove a requirement (dry run; --confirm writes it); remove profile <name>
   init                Write a starter file with dev and test profiles (dry run; --confirm writes it)
+  migrate [--to <version>] [--repo <path>]
+                      Move a repo between software-factory versions, up or down: detect the
+                      version of the repo and of the installed plugins, and print the plan in
+                      order (plugin, automatic and manual steps, the files each touches and why).
+                      Read-only. Exit 1 when the move is refused (the reasons first). The target
+                      defaults to the latest version this factory-doctor knows
+  migrate --apply [--scope <s>]...
+                      Make the automatic repo steps through the installed factory plugin's
+                      migrate-repo (backups first), then print what is left
+  migrate --update-plugins [--confirmed]
+                      The claude commands that move every installed software-factory plugin to
+                      the target together; only --confirmed runs them (then restart Claude Code)
 
 Options:
   --file <path>              The requirements file (default: ${DEFAULT_FILE} in the repository root)
@@ -59,6 +72,13 @@ Options:
   --extends <a,b>            add profile: the profiles it extends
   --from-scan <n>            add: proposal <n> from scan
   --confirm                  add, remove, init: write the change (without it, a dry run)
+  --to <version>             migrate: the target (a version, unreleased or latest; default latest)
+  --repo <path>              migrate: the repository (default: the one holding the current directory)
+  --apply                    migrate: make the automatic repo steps
+  --scope <s>                migrate --apply: settings scope to change, project, local or user;
+                             repeatable (default project and local; user only when named)
+  --update-plugins           migrate: update the installed software-factory plugins
+  --confirmed                migrate --update-plugins: run the claude commands (without it, print them)
   --json                     Print machine-readable JSON
   -h, --help                 Show this help
   --version                  Print the CLI version
@@ -77,6 +97,7 @@ const COMMAND_OPTIONS: Record<string, readonly string[]> = {
   add: ['file', 'profile', 'why', 'source', 'optional', 'description', 'format', 'tool-version', 'version-command', 'version-pattern', 'extends', 'from-scan', 'confirm'],
   remove: ['file', 'profile', 'confirm'],
   init: ['file', 'confirm'],
+  migrate: ['to', 'repo', 'apply', 'scope', 'update-plugins', 'confirmed'],
 };
 
 /** Flags that would carry a value or secret: refused outright, never parsed. */
@@ -124,6 +145,12 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
         extends: { type: 'string' },
         'from-scan': { type: 'string' },
         confirm: { type: 'boolean', default: false },
+        to: { type: 'string' },
+        repo: { type: 'string' },
+        apply: { type: 'boolean', default: false },
+        scope: { type: 'string', multiple: true },
+        'update-plugins': { type: 'boolean', default: false },
+        confirmed: { type: 'boolean', default: false },
       },
     });
   } catch (error) {
@@ -148,6 +175,7 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
     if (['json', 'help', 'version'].includes(k) || v === undefined || v === false) continue;
     if (!allowed.includes(k)) return usageError(io, `${command} does not take --${k}`);
   }
+  if (command === 'migrate') return migrateCommand(rest, values, { cwd, env }, io);
   const loc = locate(cwd, values.file);
   const print = (value: unknown, text: string): void => io.stdout(values.json ? `${JSON.stringify(value)}\n` : text);
 
@@ -252,6 +280,61 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
     if (error instanceof UsageError) return usageError(io, error.message);
     io.stderr(`${CLI_NAME}: ${error instanceof Error ? error.message : String(error)}\n`);
     return EXIT.failure;
+  }
+}
+
+interface MigrateValues {
+  json?: boolean;
+  to?: string | undefined;
+  repo?: string | undefined;
+  apply?: boolean;
+  scope?: string[] | undefined;
+  'update-plugins'?: boolean;
+  confirmed?: boolean;
+}
+
+function migrateCommand(rest: string[], values: MigrateValues, where: { cwd: string; env: Env }, io: Io): number {
+  if (rest.length > 0) return usageError(io, 'migrate takes no arguments');
+  if (values.apply && values['update-plugins']) {
+    return usageError(io, 'run --apply and --update-plugins separately: an upgrade updates the plugins first (then restart Claude Code), a downgrade migrates the repo first');
+  }
+  if (values.confirmed && !values['update-plugins']) return usageError(io, '--confirmed goes with --update-plugins');
+  const scopes = values.scope ?? null;
+  for (const s of scopes ?? []) if (!(SCOPES as readonly string[]).includes(s)) return usageError(io, `--scope: '${s}' is not one of ${SCOPES.join(', ')}`);
+  const opts: MigrateOptions = { cwd: where.cwd, env: where.env, repo: values.repo, to: values.to, scopes: scopes as Scope[] | null };
+  const json = values.json === true;
+  try {
+    const p = planMigration(opts);
+    if (values['update-plugins']) {
+      const u = updatePlugins(opts, p, values.confirmed === true);
+      const { text, ok } = updateText(u, p);
+      const out = json ? `${JSON.stringify({ target: p.target, ...u })}\n` : text;
+      if (ok) io.stdout(out);
+      else io.stderr(out);
+      return ok ? EXIT.ok : EXIT.failure;
+    }
+    if (values.apply) {
+      const r = applyMigration(opts, p);
+      const { text, ok } = applyText(r);
+      const out = json ? `${JSON.stringify({ ...r, ok })}\n` : text;
+      if (ok) io.stdout(out);
+      else io.stderr(out);
+      return ok ? EXIT.ok : EXIT.failure;
+    }
+    const out = json ? `${JSON.stringify(p)}\n` : planText(p, opts, 'dry-run');
+    if (p.refused.length > 0) {
+      io.stderr(out);
+      return EXIT.failure;
+    }
+    io.stdout(out);
+    return EXIT.ok;
+  } catch (error) {
+    if (error instanceof MigrateUsage) return usageError(io, error.message);
+    if (error instanceof MigrateRefused) {
+      io.stderr(`${CLI_NAME}: ${error.message}\n`);
+      return EXIT.failure;
+    }
+    throw error;
   }
 }
 
