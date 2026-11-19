@@ -404,7 +404,8 @@ const hasV040 = spawnSync('git', ['cat-file', '-e', `${V040}^{commit}`], { cwd: 
 
 test('downgrade to 0.4.0: the repo first, then the plugins by hand; the 0.4.0 CLI then runs status, followup list and stats', { skip: !hasV040 && 'needs the v0.4.0 commit (full history)' }, box(async (b) => {
   b.install(CURRENT);
-  currentFactory(b, { max_review_rounds: 2, advisor: { share: false } });
+  // "remote": null is the documented local default: no remote factory, so nothing to refuse.
+  currentFactory(b, { max_review_rounds: 2, remote: null, advisor: { share: false } });
   // The 0.4.0 CLI, from git show v0.4.0:plugins/factory, in a temp dir.
   const old = join(b.dir, 'v0.4.0');
   mkdirSync(old);
@@ -413,13 +414,15 @@ test('downgrade to 0.4.0: the repo first, then the plugins by hand; the 0.4.0 CL
   const cli040 = join(old, 'plugins', 'factory', 'src', 'cli.ts');
   const refusedBefore = b.factory(['status'], cli040);
   assert.equal(refusedBefore.status, 1, 'the 0.4.0 CLI should refuse the current factory.json before the migration');
-  assert.match(refusedBefore.stderr, /unknown key 'advisor'/);
+  assert.match(refusedBefore.stderr, /unknown key '(remote|advisor)'/);
 
   const dry = await b.migrate(['--to', '0.4.0']);
   assert.equal(dry.code, 0, dry.stderr);
   assert.match(dry.stdout, /\n {2}repo: {4}unreleased .*\n {2}plugins: unreleased .*\n {2}target: {2}0\.4\.0 .*\n {2}move: {4}downgrade: the repo first, while the newer tools are installed, then the plugins\n/);
   const plan = dry.stdout.slice(dry.stdout.indexOf('plan, in order:'));
-  assert.match(plan, /1\. \[automatic\] factory\.json: remove "advisor": \{"share":false\} \(0\.4\.0 refuses the key\)/);
+  assert.doesNotMatch(dry.stdout, /refused/);
+  assert.match(plan, /1\. \[automatic\] factory\.json: remove "remote": null \(0\.4\.0 refuses the key\)/);
+  assert.match(plan, /\[automatic\] factory\.json: remove "advisor": \{"share":false\} \(0\.4\.0 refuses the key\)/);
   assert.match(plan, /\[manual\] factory-doctor: not in the target version: uninstall it yourself/);
   assert.match(plan, /\[plugin\] switch the plugins to 0\.4\.0 by hand: Claude Code cannot install a plugin version that is not its marketplace's latest/);
   assert.match(plan, /git -C <dir> checkout v0\.4\.0\n.*claude plugin disable factory-doctor@software-factory\n.*claude plugin disable factory@software-factory\n.*claude --plugin-dir <dir>\/plugins/s);
@@ -430,6 +433,7 @@ test('downgrade to 0.4.0: the repo first, then the plugins by hand; the 0.4.0 CL
   assert.deepEqual(JSON.parse(readFileSync(join(b.repo, 'factory.json'), 'utf8')), { max_review_rounds: 2 });
   const backup = /^backup of the settings files \(and factory\.json\): (.*)$/m.exec(applied.stdout)?.[1] as string;
   assert.deepEqual(JSON.parse(readFileSync(join(backup, 'config', 'factory.json'), 'utf8')).advisor, { share: false });
+  assert.equal(JSON.parse(readFileSync(join(backup, 'config', 'factory.json'), 'utf8')).remote, null);
   assert.doesNotMatch(applied.stdout.slice(applied.stdout.indexOf('left')), /\[automatic\]/);
 
   for (const args of [['status'], ['followup', 'list'], ['stats']]) {

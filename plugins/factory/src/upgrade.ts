@@ -578,7 +578,9 @@ function planDowngrade(root: string, to: string, found: string[]): DowngradePlan
   const config = readConfigFile(path);
   const plan: DowngradePlan = { config: { file: path, changes: [], text: null }, runtime: { dir: root, changes: [], originals: [], apply: [] } };
 
-  const remote = config !== null && Object.hasOwn(config, 'remote') && !target.config_keys.includes('remote');
+  // `"remote": null` is the documented local default (no remote factory): it is dropped like any
+  // other key the target does not know, not refused.
+  const remote = config !== null && isObj(config.remote) && !target.config_keys.includes('remote');
   const stateCheckout = existsSync(join(root, 'jobs', '.git'));
   if (remote || stateCheckout) {
     refusals.push(
@@ -588,7 +590,7 @@ function planDowngrade(root: string, to: string, found: string[]): DowngradePlan
     );
   }
   if (config !== null) {
-    const drop = Object.keys(config).filter((k) => k !== 'remote' && knownKeys.has(k) && !target.config_keys.includes(k));
+    const drop = Object.keys(config).filter((k) => !(k === 'remote' && remote) && knownKeys.has(k) && !target.config_keys.includes(k));
     if (drop.length > 0) {
       found.push(`factory.json: ${drop.join(', ')} (unknown to ${to})`);
       const out: Obj = {};

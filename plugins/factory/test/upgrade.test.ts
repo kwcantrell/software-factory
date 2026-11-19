@@ -626,6 +626,17 @@ test('downgrade refused: a remote factory, with the reason and the manual choice
   assert.deepEqual(snapshot(r.tmp), before);
 }));
 
+test('downgrade: "remote": null is the local default, not a remote factory: the key is removed like any other', withRepo((r) => {
+  currentFactory(r, { spec_gate: false, remote: null, advisor: { share: false } });
+  const rep = json(r, ['--apply'], { from: TO, to: '0.4.0' });
+  assert.deepEqual(rep.config.changes, [
+    'factory.json: remove "remote": null (0.4.0 refuses the key)',
+    'factory.json: remove "advisor": {"share":false} (0.4.0 refuses the key)',
+  ]);
+  assert.deepEqual(JSON.parse(readFileSync(join(r.repo, 'factory.json'), 'utf8')), { spec_gate: false });
+  assert.equal(Object.hasOwn(JSON.parse(readFileSync(join(rep.settings_backup, 'config', 'factory.json'), 'utf8')), 'remote'), true);
+}));
+
 test('downgrade refused: an unfinished job whose recorded commit protects its merge', withRepo((r) => {
   currentFactory(r, {});
   const path = join(r.jobDir('002-second'), 'job.json');
