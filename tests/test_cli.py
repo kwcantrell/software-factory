@@ -36,9 +36,9 @@ class FactoryCLI(unittest.TestCase):
         return subprocess.run(["git", *args], cwd=cwd or self.repo, env=self.env, check=True,
                               capture_output=True, text=True).stdout.strip()
 
-    def factory(self, *args, cwd=None):
+    def factory(self, *args, cwd=None, env=None):
         return subprocess.run([sys.executable, "-I", str(FACTORY), *args], cwd=cwd or self.repo,
-                              env=self.env, capture_output=True, text=True)
+                              env=env or self.env, capture_output=True, text=True)
 
     def ok(self, *args, cwd=None):
         p = self.factory(*args, cwd=cwd)
@@ -56,6 +56,36 @@ class FactoryCLI(unittest.TestCase):
         (self.fdir / "jobs" / job_id / "task.md").write_text(TASK)
         self.ok("start", job_id)
         return job_id
+
+    def shipped_job(self, filename="thing.txt", content="thing\n"):
+        """A job driven through build, proof and one approving review round to ship."""
+        job_id = self.started_job()
+        wt = Path(self.job(job_id)["worktree"])
+        (wt / filename).write_text(content)
+        self.git("add", filename, cwd=wt)
+        self.git("commit", "-q", "-m", f"Change {filename}", cwd=wt)
+        jdir = self.fdir / "jobs" / job_id
+        for name in ("build.md", "proof.md", "review-1-solo.md"):
+            (jdir / name).write_text("# notes\n")
+        self.ok("built", job_id)
+        self.ok("proof", job_id, "pass")
+        self.ok("round", job_id, "solo")
+        self.ok("verdict", job_id, "solo", "approve")
+        self.assertEqual(self.job(job_id)["stage"], "ship")
+        return job_id
+
+    def assert_merge_escalated_and_kept(self, job_id, p):
+        """A failed merge exits 2, leaves the job in ship with its worktree and branch, and the
+        main checkout clean with no merge in progress."""
+        self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
+        self.assertIn("escalated to a human", p.stderr)
+        job = self.job(job_id)
+        self.assertEqual((job["stage"], job["status"]), ("ship", "needs-human"))
+        self.assertTrue(Path(job["worktree"]).is_dir())
+        self.assertIn(job["branch"], self.git("branch", "--list", job["branch"]))
+        self.assertEqual(self.git("status", "--porcelain", "--untracked-files=no"), "")
+        self.assertFalse((self.repo / ".git" / "MERGE_HEAD").exists())
+        return job
 
     # ------------------------------------------------------------------ tests
 
@@ -147,6 +177,29 @@ class FactoryCLI(unittest.TestCase):
         p = self.factory("proof", job_id, "fail")
         self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
         self.assertEqual(self.job(job_id)["status"], "needs-human")
+
+    def test_merge_conflict_escalates_as_a_conflict(self):
+        job_id = self.shipped_job("README.md", "the branch's readme\n")
+        (self.repo / "README.md").write_text("main's readme\n")
+        self.git("commit", "-q", "-am", "Change README on main")
+        p = self.factory("merge", job_id)
+        job = self.assert_merge_escalated_and_kept(job_id, p)
+        self.assertIn("conflicts - the branch needs a rebase", job["needs_human"])
+        self.assertIn("CONFLICT", p.stderr, "git's own output is still printed")
+
+    def test_merge_failing_for_another_reason_reports_gits_error(self):
+        job_id = self.shipped_job()
+        # No identity anywhere: drop the GIT_AUTHOR_*/GIT_COMMITTER_* env, and stop git guessing
+        # one from the host name so the failure does not depend on the machine's DNS.
+        env = {k: v for k, v in self.env.items() if not k.startswith(("GIT_AUTHOR_", "GIT_COMMITTER_"))}
+        self.git("config", "user.useConfigOnly", "true")
+        p = self.factory("merge", job_id, env=env)
+        job = self.assert_merge_escalated_and_kept(job_id, p)
+        reason = job["needs_human"]
+        self.assertIn("Please tell me who you are", reason)
+        self.assertNotIn("conflict", reason.lower())
+        self.assertNotIn("rebase", reason.lower())
+        self.assertIn("Please tell me who you are", p.stderr, "git's own output is still printed")
 
     def test_config_prints_defaults(self):
         cfg = json.loads(self.ok("config"))
