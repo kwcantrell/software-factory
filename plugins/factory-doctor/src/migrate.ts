@@ -490,8 +490,9 @@ export function runPlumbing(root: string, args: string[], cwd: string, env: Env)
   return { status: p.status ?? 1, stdout: p.stdout, stderr: p.stderr };
 }
 
-function plumbingArgs(repo: string, from: string, to: string, scopes: Scope[] | null, apply: boolean): string[] {
-  return ['--from', from, '--to', to, '--repo', repo, ...(scopes ?? []).flatMap((s) => ['--scope', s]), ...(apply ? ['--apply'] : [])];
+/** Its arguments; `--repo` only when the person named one (it runs in the repo, and quotes it back in its manual steps). */
+function plumbingArgs(repo: string | null, from: string, to: string, scopes: Scope[] | null, apply: boolean): string[] {
+  return ['--from', from, '--to', to, ...(repo === null ? [] : ['--repo', repo]), ...(scopes ?? []).flatMap((s) => ['--scope', s]), ...(apply ? ['--apply'] : [])];
 }
 
 function whyRuntime(change: string, direction: string): string {
@@ -543,7 +544,7 @@ export function plan(opts: MigrateOptions): Plan {
     if (root === null) {
       note = `the factory plugin (factory@${MARKETPLACE}) is not installed for this repo, so the repo steps (factory/ dir, factory.json, settings) cannot be planned or applied: install it yourself (claude plugin install factory@${MARKETPLACE} --scope project), restart Claude Code, then run ${INVOCATION} again`;
     } else {
-      const p = runPlumbing(root, plumbingArgs(repo, from, to, opts.scopes, false), repo, opts.env);
+      const p = runPlumbing(root, plumbingArgs(opts.repo === undefined ? null : repo, from, to, opts.scopes, false), repo, opts.env);
       if (p.status === 0) plumbing = JSON.parse(p.stdout) as PlumbingReport;
       else if (p.status === 1) refused.push(p.stderr.trim().replace(/^refused: /, ''));
       else {
@@ -641,7 +642,7 @@ export function apply(opts: MigrateOptions, before: Plan): ApplyResult {
   const installs = readInstalls(opts.env, before.repo);
   const root = factoryRoot(installs);
   if (root === null) throw new MigrateRefused(before.plumbing_note ?? `the factory plugin (factory@${MARKETPLACE}) is not installed for this repo`);
-  const p = runPlumbing(root, plumbingArgs(before.repo, before.from.used, before.target, opts.scopes, true), before.repo, opts.env);
+  const p = runPlumbing(root, plumbingArgs(opts.repo === undefined ? null : before.repo, before.from.used, before.target, opts.scopes, true), before.repo, opts.env);
   if (p.status === 1) throw new MigrateRefused(p.stderr.trim());
   if (p.status !== 0) throw new MigrateRefused(before.plumbing_note ?? `the factory plugin's migrate-repo failed (exit ${p.status}): ${p.stderr.trim()}`);
   const applied = JSON.parse(p.stdout) as PlumbingReport;

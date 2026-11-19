@@ -3,11 +3,11 @@
 // repository with a temp HOME and CLAUDE_CONFIG_DIR (never the user's).
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -22,6 +22,15 @@ after(() => rmSync(scratch, { recursive: true, force: true }));
 // Simulate the plugin cache: Claude Code installs a plugin by copying its folder.
 const pluginRoot = join(scratch, 'plugin-cache', CLI_NAME);
 cpSync(source, pluginRoot, { recursive: true, filter: (path) => !path.includes('node_modules') });
+// The factory plugin, installed beside it in a fake Claude Code install record, for `migrate`'s
+// plumbing; and a fake `claude` first on PATH, so `migrate --update-plugins --confirmed` never runs
+// the real one.
+const factoryRoot = join(scratch, 'plugin-cache', 'factory');
+cpSync(join(source, '..', 'factory'), factoryRoot, { recursive: true, filter: (path) => !path.includes('node_modules') });
+const fakeBin = join(scratch, 'bin');
+mkdirSync(fakeBin);
+writeFileSync(join(fakeBin, 'claude'), `#!/usr/bin/env node\nrequire('node:fs').appendFileSync(${JSON.stringify(join(scratch, 'claude-calls.log'))}, process.argv.slice(2).join(' ') + '\\n');\n`);
+chmodSync(join(fakeBin, 'claude'), 0o755);
 const cwd = join(scratch, 'unrelated-cwd');
 mkdirSync(cwd);
 const env: NodeJS.ProcessEnv = Object.fromEntries(
@@ -33,13 +42,20 @@ env.npm_config_cache = join(scratch, 'npm-cache');
 env.npm_config_offline = 'true';
 env.HOME = join(scratch, 'home');
 env.CLAUDE_CONFIG_DIR = join(scratch, 'claude');
+env.PATH = `${fakeBin}${delimiter}${dirname(process.execPath)}${delimiter}${process.env.PATH ?? ''}`;
+mkdirSync(join(scratch, 'claude', 'plugins'), { recursive: true });
+writeFileSync(
+  join(scratch, 'claude', 'plugins', 'installed_plugins.json'),
+  JSON.stringify({ version: 2, plugins: { 'factory@software-factory': [{ scope: 'user', installPath: factoryRoot, version: '0.4.0' }], 'factory-doctor@software-factory': [{ scope: 'user', installPath: pluginRoot, version: '0.4.0' }] } }),
+);
 delete env.FACTORY_DOCTOR_PROFILE;
 
 let repoCount = 0;
 /** A fresh repository: a .git dir, a .env.example for scan, and (unless bare) a doctor file. */
 function repo(withFile = true): string {
   const dir = join(scratch, `repo-${++repoCount}`);
-  mkdirSync(join(dir, '.git'), { recursive: true });
+  mkdirSync(dir, { recursive: true });
+  assert.equal(spawnSync('git', ['init', '-q', dir]).status, 0);
   writeFileSync(join(dir, '.env.example'), 'DATABASE_URL=\n');
   if (withFile) {
     mkdirSync(join(dir, '.factory'));
@@ -49,7 +65,7 @@ function repo(withFile = true): string {
   return dir;
 }
 
-const VALUES: Record<string, string> = { profile: 'dev', n: '1', kind: 'env', name: 'NEW_VAR', why: 'the app reads it' };
+const VALUES: Record<string, string> = { profile: 'dev', n: '1', kind: 'env', name: 'NEW_VAR', why: 'the app reads it', version: '0.4.0' };
 
 /** Fills a skill line's `<placeholder>` values; `remove` removes the env var the file holds. */
 function fill(command: string): string {
@@ -75,16 +91,21 @@ test('the skill calls the CLI only through the shared npx invocation', () => {
   assert.equal(existsSync(join(pluginRoot, 'node_modules')), false);
 });
 
-test('allowed-tools pre-approves only check, scan, profiles and --help', () => {
+test('allowed-tools pre-approves only check, scan, profiles, --help and the migrate dry run, never --apply or --update-plugins', () => {
   const text = readFileSync(join(pluginRoot, SKILL), 'utf8');
   const line = /^allowed-tools: (.*)$/m.exec(text)?.[1] ?? '';
-  const rules = [...line.matchAll(/Bash\((.*?):\*\)/g)].map((m) => m[1] ?? '');
-  assert.deepEqual(rules, ['check', 'scan', 'profiles', '--help'].map((c) => `${INVOCATION} ${c}`));
+  const rules = [...line.matchAll(/Bash\((.*?)\)(?:, |$)/g)].map((m) => m[1] ?? '');
+  assert.deepEqual(rules, [
+    ...['check', 'scan', 'profiles', '--help'].map((c) => `${INVOCATION} ${c}:*`),
+    `${INVOCATION} migrate`,
+    `${INVOCATION} migrate --json`,
+  ]);
+  assert.doesNotMatch(line, /--apply|--update-plugins|--confirmed|migrate:\*/);
 });
 
 test('every skill command line runs from a fresh copy, in a fresh repository, and exits 0', () => {
   const commands = skillCommands();
-  for (const c of ['check', 'scan', 'profiles', 'init', 'add', 'remove', '--help']) {
+  for (const c of ['check', 'scan', 'profiles', 'init', 'add', 'remove', 'migrate', '--help']) {
     assert.ok(commands.some((l) => l.startsWith(`${INVOCATION} ${c}`)), `the skill runs ${c}`);
   }
   for (const line of commands) {
@@ -94,10 +115,11 @@ test('every skill command line runs from a fresh copy, in a fresh repository, an
     const { status, stdout, stderr } = sh(command, dir);
     assert.equal(status, 0, `${command}\nstderr: ${stderr}`);
     assert.notEqual(stdout, '', command);
+    if (command.includes('--update-plugins --confirmed')) assert.match(readFileSync(join(scratch, 'claude-calls.log'), 'utf8'), /^plugin marketplace update software-factory\nplugin update factory-doctor@software-factory\nplugin update factory@software-factory\n/);
     if (command.endsWith(' --help')) assert.match(stdout, new RegExp(`^Usage: ${CLI_NAME} `));
     if (command.includes(' --json')) JSON.parse(stdout);
     const after = existsSync(join(dir, '.factory', 'doctor.json')) ? readFileSync(join(dir, '.factory', 'doctor.json'), 'utf8') : null;
-    if (command.includes('--confirm')) assert.notEqual(after, before, `${command} wrote the file`);
+    if (/--confirm( |$)/.test(command)) assert.notEqual(after, before, `${command} wrote the file`);
     else assert.equal(after, before, `${command} changed nothing`);
   }
 });
