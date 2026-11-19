@@ -30,10 +30,6 @@ async function call(cwd: string, argv: string[], env: NodeJS.ProcessEnv = cleanE
   return { code, stdout, stderr };
 }
 
-function marketplaceNames(f: Fixture): string[] {
-  return JSON.parse(readFileSync(join(f.root, '.claude-plugin', 'marketplace.json'), 'utf8')).plugins.map((p: { name: string }) => p.name);
-}
-
 test('--help prints usage on stdout', async () => {
   const { code, stdout } = await call(scratch, ['--help']);
   assert.equal(code, EXIT.ok);
