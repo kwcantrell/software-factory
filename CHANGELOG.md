@@ -42,8 +42,16 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - The `factory` skills name themselves in their frontmatter, and a test runs every skill command
   line through npx, so `factory` passes the convention check.
 - MIT license.
-- `scripts/check.sh`, one command for every check CI runs, and a `unittest` suite for the CLI and
-  the release script under `tests/`.
+- `factory-dev` plugin (`/plugin install factory-dev@software-factory`), the tooling for developing
+  software-factory itself, as a TypeScript CLI run through npx: `check` runs every check CI runs in
+  one command (JSON parse, `claude plugin validate`, typecheck, tests, the release check and
+  `factory-plugin-builder check --all`) and lists the failed steps; `release [<tag>] [--notes-out
+  <file>]` checks that every plugin has the same version in `plugin.json` and `package.json`, that
+  the tag is `v` + that version and that `CHANGELOG.md` has its section, and prints the notes. Its
+  `factory-dev` skill tells agents to run `check` before finishing a change and `release <tag>`
+  before tagging. It replaces the Python and shell dev scripts (`scripts/check.sh`,
+  `scripts/release.py` and its `tests/`): the repository has no Python or shell left, and CI and
+  the release workflow run `factory-dev`.
 - GitHub Actions: CI on pull requests and pushes to `main`, and a release workflow for `v*` tags
   that checks the tag against the plugin version and publishes this changelog's notes.
 - `CLAUDE.md`, `CONTRIBUTING.md`, pull request and issue templates.

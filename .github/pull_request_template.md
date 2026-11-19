@@ -13,7 +13,7 @@
 
 ## Checklist
 
-- [ ] `scripts/check.sh` passes locally
+- [ ] `factory-dev check` passes locally (`node plugins/factory-dev/src/cli.ts check`)
 - [ ] `CHANGELOG.md` has an entry under `## [Unreleased]` (or this is internal only)
 - [ ] CLI behaviour changes have a test in `plugins/factory/test/`
 - [ ] Follows `CLAUDE.md`: TypeScript run via npx with no runtime dependencies, gates in the CLI, human-only commands in the hook (`plugins/factory/src/gate.ts`), new `job.json` fields handled by the dashboard, new `factory.json` keys in `DEFAULTS` and validation

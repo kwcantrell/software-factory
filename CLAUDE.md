@@ -21,12 +21,13 @@ build step and no runtime dependency.
 | --- | --- |
 | `factory` | The line itself: the `factory` CLI (state machine and gates), the supervisor and gate skills, the station agents, the human-gate hook and the dashboard |
 | `factory-plugin-builder` | Builds plugins for this marketplace: `new` (scaffold from `templates/plugin`), `check` (the "Plugin layout" and "CLI convention" below, statically, with a fix per finding), `verify` (the full gate for one plugin). Its `build-plugin` skill is the workflow. See its `README.md` |
+| `factory-dev` | Develops this repository: `check` (every CI gate in one command) and `release [<tag>]` (the tag/version check and release notes). Its `factory-dev` skill says when to run which. CI and the release workflow run it too. See its `README.md` |
 
 ## Layout
 
 | Path | What it is |
 | --- | --- |
-| `.claude-plugin/marketplace.json` | Marketplace `software-factory`; entries `factory` and `factory-plugin-builder`, each from `./plugins/<name>` |
+| `.claude-plugin/marketplace.json` | Marketplace `software-factory`; entries `factory`, `factory-plugin-builder` and `factory-dev`, each from `./plugins/<name>` |
 | `plugins/factory/.claude-plugin/plugin.json` | Plugin manifest: name `factory`, `version`, `license` |
 | `plugins/factory/package.json` | `"bin": {"factory": "src/cli.ts"}`, `type: module`, private, no `dependencies` |
 | `plugins/factory/src/cli.ts`, `run.ts` | CLI entry, and argument parsing, usage text and exit codes |
@@ -43,18 +44,18 @@ build step and no runtime dependency.
 | `plugins/factory/test/*.test.ts` | `node:test` suites; `test/fixtures/` holds job records written by the original CLI |
 | `plugins/factory-plugin-builder/src/` | `cli.ts`, `run.ts`; `check.ts` (the convention's rules), `scaffold.ts` (`new`), `verify.ts`, `repo.ts` (finds the checkout) |
 | `plugins/factory-plugin-builder/skills/build-plugin/SKILL.md` | The plugin-building workflow: new, implement, check, verify |
+| `plugins/factory-dev/src/` | `cli.ts`, `run.ts`; `check.ts` (the CI gates, run in order), `release.ts` (versions and release notes), `repo.ts` (finds the checkout) |
+| `plugins/factory-dev/skills/factory-dev/SKILL.md` | When to run `check` (before finishing any change) and `release <tag>` (before tagging) |
 | `templates/plugin/` | The plugin template, itself a valid plugin (`plugin-template`), not listed in the marketplace |
 | `package.json`, `package-lock.json`, `tsconfig.json` | Dev tooling only (typecheck, tests, `new-plugin`). Plugins never import from the root |
-| `scripts/check.sh` | Every check CI runs, in one command |
-| `scripts/release.py`, `tests/test_release.py` | Release tag/version check and release notes from `CHANGELOG.md`, and its tests (Python until job 006 ports them) |
-| `.github/workflows/` | `ci.yml` (PRs, pushes to `main`) and `release.yml` (tags `v*`) |
+| `.github/workflows/` | `ci.yml` (PRs, pushes to `main`: `npm ci`, then `factory-dev check --require-claude`) and `release.yml` (tags `v*`: `factory-dev release <tag>`) |
 | `docs/research/` | Build-vs-buy research behind the design; reference material, not maintained code |
 
 ## Commands
 
 ```sh
 npm ci                                             # dev tooling: typescript, @types/node (pinned exactly)
-scripts/check.sh                                   # everything CI runs; exit 0 = green
+node plugins/factory-dev/src/cli.ts check          # everything CI runs; exit 0 = green (CI adds --require-claude)
 npm run typecheck                                  # strict tsc over plugins/*/**/*.ts and templates/*/**/*.ts
 npm test                                           # every plugin's and the template's node:test suites
 npm run new-plugin -- <name> [--description "<text>"]   # scaffold plugins/<name> from templates/plugin
@@ -63,13 +64,16 @@ node plugins/factory-plugin-builder/src/cli.ts verify <name>        # check + va
 node --test plugins/factory/test/cli.test.ts       # one suite
 claude plugin validate .                           # marketplace manifest
 claude plugin validate plugins/<name>              # one plugin (also templates/plugin)
-scripts/release.py v0.2.0                          # would this tag release? prints its notes
+node plugins/factory-dev/src/cli.ts release v0.2.0 # would this tag release? prints its notes
 node plugins/factory/src/cli.ts --help             # every CLI command
 ```
 
-`scripts/check.sh` needs `git`, Node.js 22.18+ with `npm ci` done, `python3` (release script only)
-and the `claude` CLI; it runs `shellcheck` when installed and says it skipped it otherwise (CI
-installs it).
+`factory-dev check` needs `git`, Node.js 22.18+ with `npm ci` done, and the `claude` CLI; without
+`claude` it reports the validate steps as skipped (not passed), and `--require-claude` fails them
+instead. Agents with the `factory-dev` plugin installed run the same commands through npx
+(`npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory-dev check`), from
+anywhere in the checkout. The repository holds no Python or shell scripts: dev tooling is TypeScript
+in `plugins/factory-dev`.
 
 ## Plugin layout
 
@@ -110,7 +114,8 @@ next one, rule by rule (the bracketed ids are its rule names).
 - **`allowed-tools`** allows the prefix: `Bash(<prefix> <name>:*)`, or, when some commands write,
   act on the machine or need a person, one `Bash(<prefix> <name> <command>:*)` rule per command that
   may run unprompted [allowed-tools]. `factory` never pre-approves `merge`, `approve` or `rework`;
-  `factory-plugin-builder` pre-approves `check`, `verify` and `--help`, not `new`.
+  `factory-plugin-builder` pre-approves `check`, `verify` and `--help`, not `new`; `factory-dev`
+  pre-approves `check`, `release` and `--help`.
 - **Hooks** run the plugin's own TypeScript in exec form, `"command": "node", "args":
   ["${CLAUDE_PLUGIN_ROOT}/src/cli.ts", "<command>"]` (or a dedicated entry under `src/`, as
   `factory`'s `src/human-gate.ts`), or a shell command starting with the npx prefix [hooks-cli].
@@ -157,13 +162,13 @@ next one, rule by rule (the bracketed ids are its rule names).
   repo creates `/factory/`, which `.gitignore` excludes. Tests use temporary repos with
   `FACTORY_DIR` set; never point them at a real `factory/`.
 - **Every user-visible change gets a semver bump and a changelog entry.** Add it under
-  `## [Unreleased]` in `CHANGELOG.md` (Keep a Changelog). A release moves those entries under the
-  new version and bumps `version` in `plugins/factory/.claude-plugin/plugin.json` and
-  `plugins/factory/package.json` (and in the marketplace entry, if one is ever added there);
-  `scripts/release.py` refuses a tag that does not match.
+  `## [Unreleased]` in `CHANGELOG.md` (Keep a Changelog). **One changelog, one repo version:** every
+  marketplace plugin's `.claude-plugin/plugin.json` and `package.json` carry the same `version`
+  (and so does a marketplace entry, if one ever lists a version), and they all move together. A
+  release moves the `Unreleased` entries under the new version and bumps every plugin's `version`;
+  `factory-dev release <tag>` refuses a tag that is not `v` + that version, and `factory-dev check`
+  refuses versions that differ at any time. A new plugin starts at the repo's current version.
 - Every change to the CLI's behaviour comes with a test in `plugins/factory/test/` that drives the
   CLI as a subprocess.
-- The remaining Python (`scripts/release.py`, `tests/test_release.py`) is stdlib only and run
-  isolated, as `scripts/check.sh` and the release workflow do.
 - Keep stations short: each skill and agent is one prompt file. See CONTRIBUTING.md for branch,
   commit and PR conventions.
