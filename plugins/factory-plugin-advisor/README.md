@@ -76,6 +76,26 @@ Then summaries are made one line and capped at 200 characters, details at 2000. 
 inside a `[redacted]` marker or leaves a dangling `key=` behind. Only an exact `[redacted]` counts as
 already redacted: text after a typed marker (`Cookie: a=[redacted] x; b=secret`) is still redacted.
 
+**Personal details.** Drafts are filed on a public repo, so the same path (the `record` flags and
+`--stdin`, and the hook's error line) also masks personal details before anything is stored:
+
+- the home part of a path becomes `~`: `/home/<user>`, `/Users/<user>`, `/root` and
+  `C:\Users\<user>` (either slash), and the current user's `$HOME` and `os.homedir()` wherever
+  they appear;
+- the current username (`os.userInfo().username`, `$USER`, `$USERNAME`) becomes `[user]` as a whole
+  word anywhere, unless it is shorter than 3 characters or a common word (`root`, `admin`, `user`,
+  `runner`, `node`, `ubuntu`);
+- email addresses become `[email]`. npm scopes (`@types/node`), `git@host:owner/repo` remotes and
+  decorators (`@param`) are not emails;
+- GitHub mentions (`@` and 1 to 39 letters, digits or hyphens, not after a word character, `/` or
+  `.`, not before `/`) become `@[user]`, so a filed issue notifies no one. npm scopes, emails, URLs
+  and code inside backticks are left alone.
+
+Drafts mask their quoted summaries and details again (after backticks become quotes), so a log
+written before masking existed gives a clean draft. `file` (dry run and `--confirm`) refuses, with
+exit 1 and the line number, a draft that still holds a home-dir path, the current user's home, an
+email or a linkable mention, for example one edited in by hand.
+
 **Signatures.** An issue's signature is a hash of the plugin, the kind and the summary normalised:
 lower-cased, with URLs, emails, paths, UUIDs, factory job ids (`005-port-the-factory-cli-to-...`),
 hex, ids and numbers masked. So "refused: 005-port-the-factory is at stage build after 2 rounds" and

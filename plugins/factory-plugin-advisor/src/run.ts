@@ -18,6 +18,7 @@ import {
 import { fileIssue, type FileResult } from './file.ts';
 import { handleHookInput } from './hook.ts';
 import { type Env, marketplacePlugins, ownRoot } from './plugins.ts';
+import { identityOf, osIdentity, type SystemIdentity } from './redact.ts';
 import { Store } from './store.ts';
 
 export const CLI_NAME = 'factory-plugin-advisor';
@@ -34,6 +35,8 @@ export interface Io {
   now?: () => Date;
   /** This plugin's folder, used to find the marketplace manifest. */
   pluginRoot?: string;
+  /** The OS's view of the current user (home, username), masked with `env`'s; defaults to node:os. */
+  system?: SystemIdentity;
 }
 
 export const USAGE = `Usage: ${CLI_NAME} <command> [options]
@@ -198,6 +201,7 @@ export function run(argv: readonly string[], io: Io): number {
   const env = io.env ?? process.env;
   const now = (): Date => (io.now ?? (() => new Date()))();
   const pluginRoot = io.pluginRoot ?? ownRoot();
+  const identity = identityOf(env, io.system ?? osIdentity());
   const [command, ...rest] = positionals;
   if (command === undefined) return usageError(io, 'missing command');
   const allowed = COMMAND_OPTIONS[command];
@@ -218,7 +222,7 @@ export function run(argv: readonly string[], io: Io): number {
   if (command === 'hook') {
     // Never fails and never prints: see hook.ts.
     try {
-      handleHookInput(io.stdin?.() ?? '', env, pluginRoot, now());
+      handleHookInput(io.stdin?.() ?? '', env, pluginRoot, now(), identity);
     } catch {
       // nothing recorded
     }
@@ -241,7 +245,7 @@ export function run(argv: readonly string[], io: Io): number {
           }
           input = { plugin: values.plugin, kind: values.kind, summary: values.summary, ...(values.detail === undefined ? {} : { detail: values.detail }) };
         }
-        const r = record(store, input, now());
+        const r = record(store, input, now(), 'record', identity);
         return out(r, `Recorded ${r.signature} (${r.plugin}, ${r.kind}): seen ${r.count} time${r.count === 1 ? '' : 's'}.${r.redacted ? ' Secret-looking text was redacted.' : ''}\n`);
       }
       case 'list': {
@@ -255,7 +259,7 @@ export function run(argv: readonly string[], io: Io): number {
       }
       case 'suggest': {
         const threshold = positiveInt('threshold', values.threshold, DEFAULT_THRESHOLD);
-        const s = suggest(store, threshold, marketplacePlugins(pluginRoot, env).plugins, now());
+        const s = suggest(store, threshold, marketplacePlugins(pluginRoot, env).plugins, now(), identity);
         return out({ threshold, suggestions: s }, suggestText(threshold, s));
       }
       case 'dismiss': {
@@ -263,7 +267,7 @@ export function run(argv: readonly string[], io: Io): number {
         return out({ signature: i.signature, dismissed: true }, `Dismissed ${i.signature}; it will not be suggested again.\n`);
       }
       case 'file': {
-        const r = fileIssue(store, rest[0] ?? '', { confirm: values.confirm === true, env, ...(values.repo === undefined ? {} : { repo: values.repo }) });
+        const r = fileIssue(store, rest[0] ?? '', { confirm: values.confirm === true, env, identity, ...(values.repo === undefined ? {} : { repo: values.repo }) });
         return out({ ...r, dryRun: !r.filed }, fileText(r));
       }
       default:

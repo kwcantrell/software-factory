@@ -1,6 +1,6 @@
 // file: dry run, the redaction re-check, and filing through a fake gh on PATH (never the real one).
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, test } from 'node:test';
 import { draftFields, issues, KINDS, MARKETPLACE_REPO, renderDraft, targetOf, type Issue } from '../src/advisor.ts';
@@ -356,3 +356,83 @@ test('file reports a missing gh clearly', () => {
   assert.equal(r.code, EXIT.failure);
   assert.match(r.stderr, /gh is not on PATH/);
 });
+
+// Personal details: masked before storing, again when rendering, and file refuses a draft that still
+// has one. The identity is made up.
+const PERSONAL = [
+  'build failed at /home/jdoe-test/proj for jdoe-test, mailed jdoe-test@example.com, @octocat said retry',
+  'C:\\Users\\jdoe-test\\proj broke, ask @octo-cat or (@someone), see `@kept` and @types/node',
+];
+
+function personalBox(): Sandbox {
+  const b = sandbox({ HOME: '/srv/people/jdoe-test', USER: 'jdoe-test' });
+  b.env.PATH = `${fakeGh(b.dir, `console.log(${JSON.stringify(ISSUE_URL)});`)}:${process.env.PATH ?? ''}`;
+  return b;
+}
+
+/** Mentions GitHub would link: outside inline code, not after a word character, / or . */
+function linkable(markdown: string): string[] {
+  return [...markdown.replace(/`[^`\n]*`/g, '').matchAll(/(?<![\w/.])@[A-Za-z0-9-]{1,39}(?![A-Za-z0-9/-])/g)].map((m) => m[0]);
+}
+
+test('record (flags and --stdin) stores no username, email or mention; the draft has no linkable mention', () => {
+  box = personalBox();
+  let sig = '';
+  for (let i = 0; i < 2; i++) {
+    sig = json(box.call(['record', '--plugin', 'factory-docs', '--kind', 'workaround', '--summary', PERSONAL[0] ?? '', '--detail', `${PERSONAL[1] ?? ''}\nby /srv/people/jdoe-test/x`, '--json'])).signature;
+  }
+  const viaStdin = json(box.call(['record', '--stdin', '--json'], { stdin: JSON.stringify({ plugin: 'factory-docs', kind: 'workaround', summary: PERSONAL[0], detail: PERSONAL[1] }) }));
+  assert.equal(viaStdin.signature, sig);
+  const stored = readFileSync(join(box.config, 'occurrences.jsonl'), 'utf8');
+  for (const leak of ['jdoe-test', 'example.com', 'octocat', 'octo-cat', 'someone', '/home/', 'Users']) assert.ok(!stored.includes(leak), `stored ${leak}:\n${stored}`);
+  assert.ok(stored.includes('`@kept`') && stored.includes('@types/node'), 'code spans and npm scopes are kept');
+  assert.equal(json(box.call(['suggest', '--json'])).suggestions.length, 1);
+  const draft = readFileSync(join(box.config, 'drafts', `${sig}.md`), 'utf8');
+  assert.deepEqual(linkable(draft), [], draft);
+  assert.ok(!draft.includes('jdoe-test') && !draft.includes('@kept'), draft);
+  assert.equal(box.call(['file', sig, '--json']).code, EXIT.ok);
+});
+
+test('a draft made from a log written before masking existed is clean, and files', () => {
+  box = personalBox();
+  // A pre-masking log: summaries and details stored as typed (only redacted).
+  const at = (n: number): string => `2026-10-0${n}T10:00:00.000Z`;
+  const lines = [1, 2, 3].map((n) =>
+    JSON.stringify({ signature: 'abcdef012345', plugin: 'factory-docs', kind: 'workaround', summary: PERSONAL[0], detail: PERSONAL[1], at: at(n), source: 'record' }),
+  );
+  mkdirSync(box.config, { recursive: true, mode: 0o700 });
+  writeFileSync(join(box.config, 'occurrences.jsonl'), `${lines.join('\n')}\n`, { mode: 0o600 });
+  assert.equal(json(box.call(['suggest', '--json'])).suggestions.length, 1);
+  const draft = readFileSync(join(box.config, 'drafts', 'abcdef012345.md'), 'utf8');
+  for (const leak of ['jdoe-test', 'example.com', 'octocat', 'octo-cat', 'someone', '/home/', 'Users']) assert.ok(!draft.includes(leak), `draft has ${leak}:\n${draft}`);
+  assert.deepEqual(linkable(draft), [], draft);
+  const r = json(box.call(['file', 'abcdef012345', '--confirm', '--json']));
+  assert.equal(r.filed, true);
+  assert.ok(!ghCalls(box)[0]?.stdin.includes('jdoe-test'));
+});
+
+for (const [what, added] of [
+  ['an email', 'Contact: jdoe-test@example.com'],
+  ['a home-dir username', 'Seen in /home/jdoe-test/proj'],
+  ["the current user's home", 'Seen in /srv/people/jdoe-test/proj'],
+  ['a linkable mention', 'Thanks @octocat'],
+] as const) {
+  test(`file refuses (exit 1, naming the line) a draft edited to hold ${what}, without running gh`, () => {
+    box = personalBox();
+    const sig = suggested(box);
+    const path = join(box.config, 'drafts', `${sig}.md`);
+    const text = readFileSync(path, 'utf8');
+    writeFileSync(path, `${text}${added}\n`);
+    const line = text.split('\n').length;
+    for (const argv of [['file', sig], ['file', sig, '--confirm']]) {
+      const r = box.call(argv);
+      assert.equal(r.code, EXIT.failure, r.stdout);
+      assert.equal(r.stdout, '');
+      assert.equal(
+        r.stderr,
+        `factory-plugin-advisor: refusing to file ${sig}: the draft at ${path} still has a home-dir username, email address or @mention on line ${line}; edit it out or dismiss the issue\n`,
+      );
+    }
+    assert.deepEqual(ghCalls(box), []);
+  });
+}

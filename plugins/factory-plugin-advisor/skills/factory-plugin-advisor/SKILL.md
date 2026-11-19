@@ -98,7 +98,9 @@ npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factor
 ```
 
 It prints the issue's `url`; give it to the user. The CLI refuses (exit 1) to file a draft that still
-holds secret-looking text, and never files the same issue twice. `--repo <owner/name>` files
+holds secret-looking text, a home-dir path, an email address or a linkable `@mention` (the CLI
+masks these when it stores and drafts; one still there was edited in), and never files the same
+issue twice. `--repo <owner/name>` files
 somewhere else, such as a fork; ask the user whether that repository is public too.
 
 ## Dismissing an issue

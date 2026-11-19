@@ -192,3 +192,15 @@ test('the hook command from hooks/hooks.json runs and records, with no output', 
     assert.equal(log(box).length, expected, name);
   }
 });
+
+test('the hook masks home-dir usernames, emails and mentions in the error line before storing it', () => {
+  box = sandbox({ HOME: '/srv/people/jdoe-test', USER: 'jdoe-test' });
+  const input = JSON.parse(fixture('hook-npx-failure.json'));
+  input.error =
+    'Exit code 1\nfactory-docs: cannot read /home/jdoe-test/a.json, /srv/people/jdoe-test/b.json and C:\\Users\\jdoe-test\\c.json for jdoe-test (jdoe-test@example.com, cc @octocat)\nSTDOUT';
+  assert.deepEqual(box.call(['hook'], { stdin: JSON.stringify(input) }), { code: EXIT.ok, stdout: '', stderr: '' });
+  const [o] = log(box);
+  assert.equal(o.summary, 'factory-docs which exited 1: factory-docs: cannot read ~/a.json, ~/b.json and ~\\c.json for [user] ([email], cc @[user])');
+  const stored = readFileSync(join(box.config, 'occurrences.jsonl'), 'utf8');
+  for (const leak of ['jdoe-test', 'example.com', 'octocat', '/home/', '/srv/people']) assert.ok(!stored.includes(leak), `stored ${leak}`);
+});
