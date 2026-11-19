@@ -23,6 +23,35 @@ export const FALLBACK_PLUGINS = [
   'factory-plugin-discover',
 ] as const;
 
+/**
+ * The `factory` CLI's subcommands, as `factory --help` lists them. test/plugins.test.ts fails when
+ * this differs from that help, so add a new subcommand here too.
+ */
+export const FACTORY_COMMANDS = [
+  'init',
+  'new',
+  'start',
+  'spec',
+  'approve',
+  'built',
+  'proof',
+  'round',
+  'verdict',
+  'human',
+  'resume',
+  'merge',
+  'rework',
+  'close',
+  'config',
+  'note',
+  'followup',
+  'path',
+  'status',
+  'stats',
+  'upgrade',
+  'dashboard',
+] as const;
+
 export interface MarketplacePlugins {
   /** Plugin names, sorted. */
   plugins: string[];
@@ -83,7 +112,20 @@ export function marketplacePlugins(pluginRoot: string, env: Env): MarketplacePlu
   const manifest = findManifest(pluginRoot, env);
   const read = manifest === null ? null : readMarketplace(manifest);
   if (read !== null && read.plugins.length > 0) return read;
+  return fallbackPlugins();
+}
+
+function fallbackPlugins(): MarketplacePlugins {
   return { plugins: [...FALLBACK_PLUGINS], bins: new Map(FALLBACK_PLUGINS.map((p) => [p, p])), manifest: null };
+}
+
+/**
+ * Words the advisor writes itself, lower-cased: the marketplace's plugin and bin names and the
+ * `factory` subcommands. A username equal to one is not masked as a whole word (see redact.ts
+ * identityOf), or every summary about that plugin or command would read `[user]`.
+ */
+export function reservedNames(market: Pick<MarketplacePlugins, 'plugins' | 'bins'> = fallbackPlugins()): Set<string> {
+  return new Set([...market.plugins, ...market.bins.keys(), ...FACTORY_COMMANDS].map((n) => n.toLowerCase()));
 }
 
 /** This plugin's own folder (src/..). */

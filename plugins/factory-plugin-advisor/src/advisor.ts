@@ -1,6 +1,6 @@
 // record, list, show, suggest and dismiss: the occurrence log grouped into issues, and the draft
 // suggestions written for issues that recur.
-import { cleanDetail, cleanSummary, oneLine, cap, identityOf, type Identity, maskPersonal, signature as signatureOf } from './redact.ts';
+import { cleanDetail, cleanSummary, oneLine, cap, type Identity, NO_IDENTITY, maskPersonal, signature as signatureOf } from './redact.ts';
 import { CliError, type Occurrence, type State, type Store } from './store.ts';
 
 export const KINDS = {
@@ -52,7 +52,7 @@ export function validateInput(input: RecordInput): void {
 
 export class UsageError extends CliError {}
 
-export function record(store: Store, input: RecordInput, now: Date, source: Occurrence['source'] = 'record', identity: Identity = identityOf(process.env)): RecordResult {
+export function record(store: Store, input: RecordInput, now: Date, source: Occurrence['source'] = 'record', identity: Identity = NO_IDENTITY): RecordResult {
   validateInput(input);
   const summary = cleanSummary(input.summary, identity);
   const detail = input.detail === undefined ? undefined : cleanDetail(input.detail, identity);
@@ -241,7 +241,7 @@ function titleSummary(prefix: string, summary: string, identity: Identity): stri
   return maskPersonal(cap(quoted(summary, identity), Math.max(TITLE_MAX - [...prefix].length, 20)), identity);
 }
 
-export function draftTitle(issue: Issue, target: Target, identity: Identity = identityOf(process.env)): string {
+export function draftTitle(issue: Issue, target: Target, identity: Identity = NO_IDENTITY): string {
   const prefix = titlePrefix(target);
   return `${prefix}${titleSummary(prefix, issue.summary, identity)}`;
 }
@@ -279,7 +279,7 @@ export const FIELD_LINES: ReadonlyArray<readonly [before: RegExp, after: RegExp]
  * where appended text (` (exit 2, ...)`, `". factory-plugin-advisor signature ...`) sits next to a
  * redacted value and can read as part of it.
  */
-export function draftFields(plugin: string, occurrences: readonly Occurrence[], identity: Identity = identityOf(process.env)): string[] {
+export function draftFields(plugin: string, occurrences: readonly Occurrence[], identity: Identity = NO_IDENTITY): string[] {
   const prefixes = [
     titlePrefix({ kind: 'existing', plugin, text: '' }),
     titlePrefix({ kind: 'new', plugin: plugin === 'none' ? null : plugin, text: '' }),
@@ -304,7 +304,7 @@ export function renderDraft(
   occurrences: readonly Occurrence[],
   target: Target,
   filedUrl?: string,
-  identity: Identity = identityOf(process.env),
+  identity: Identity = NO_IDENTITY,
 ): { title: string; text: string; factoryRun: string } {
   const title = draftTitle(issue, target, identity);
   const subcommand = [...occurrences].reverse().find((o) => o.subcommand !== undefined)?.subcommand;
@@ -352,7 +352,7 @@ export function renderDraft(
  * `threshold` since they were last suggested; dismissed issues never. Writes each draft and records
  * the suggestion.
  */
-export function suggest(store: Store, threshold: number, known: readonly string[], now: Date, identity: Identity = identityOf(process.env)): Suggestion[] {
+export function suggest(store: Store, threshold: number, known: readonly string[], now: Date, identity: Identity = NO_IDENTITY): Suggestion[] {
   const all = store.occurrences();
   const state = store.state();
   const out: Suggestion[] = [];

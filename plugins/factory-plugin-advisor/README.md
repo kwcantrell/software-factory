@@ -83,8 +83,13 @@ already redacted: text after a typed marker (`Cookie: a=[redacted] x; b=secret`)
   `C:\Users\<user>` (either slash), and the current user's `$HOME` and `os.homedir()` wherever
   they appear;
 - the current username (`os.userInfo().username`, `$USER`, `$USERNAME`) becomes `[user]` as a whole
-  word anywhere, unless it is shorter than 3 characters or a common word (`root`, `admin`, `user`,
-  `runner`, `node`, `ubuntu`);
+  word anywhere, unless it is shorter than 3 characters, a common word (`root`, `admin`, `user`,
+  `runner`, `node`, `ubuntu`), or, ignoring case, a word the advisor writes itself: a marketplace
+  plugin or CLI bin name (read from the marketplace at run time, e.g. `factory`, `factory-dev`) or
+  a `factory` subcommand (`new`, `start`, `built`, `proof`, `round`, `verdict`, `merge` and the
+  rest of `factory --help`). Masking those would turn every summary about that plugin or command
+  into `[user] proof exited 1` and change its signature. The home part of such a user's paths
+  (`/home/factory/...`) and `$HOME` are still masked;
 - email addresses become `[email]`. npm scopes (`@types/node`), `git@host:owner/repo` remotes and
   decorators (`@param`) are not emails;
 - GitHub mentions (`@` and 1 to 39 letters, digits or hyphens, not after a word character, `/` or

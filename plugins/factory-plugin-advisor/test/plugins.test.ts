@@ -1,10 +1,11 @@
 // The marketplace's plugins and bins are read at run time, not hard-coded.
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
-import { FALLBACK_PLUGINS, findManifest, marketplacePlugins, MARKETPLACE_NAME } from '../src/plugins.ts';
+import { FACTORY_COMMANDS, FALLBACK_PLUGINS, findManifest, marketplacePlugins, MARKETPLACE_NAME } from '../src/plugins.ts';
 import { PLUGIN_ROOT } from './helpers.ts';
 
 const REPO_ROOT = join(PLUGIN_ROOT, '..', '..');
@@ -55,4 +56,12 @@ test('FALLBACK_PLUGINS equals the sorted plugin names in the repo marketplace.js
   const names = (manifest.plugins as Array<{ name: string }>).map((p) => p.name).sort();
   assert.deepEqual([...FALLBACK_PLUGINS], names, 'update FALLBACK_PLUGINS in src/plugins.ts when a plugin is added to or removed from the marketplace');
   assert.deepEqual([...FALLBACK_PLUGINS], [...FALLBACK_PLUGINS].sort(), 'FALLBACK_PLUGINS is sorted');
+});
+
+test('FACTORY_COMMANDS equals the subcommands `factory --help` lists', () => {
+  const r = spawnSync(process.execPath, [join(REPO_ROOT, 'plugins', 'factory', 'src', 'cli.ts'), '--help'], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  const listed = /\{([a-z,-]+)\}/.exec(r.stdout)?.[1]?.split(',');
+  assert.ok(listed !== undefined && listed.length > 0, r.stdout);
+  assert.deepEqual([...FACTORY_COMMANDS], listed, 'update FACTORY_COMMANDS in src/plugins.ts when a factory subcommand is added or removed');
 });
