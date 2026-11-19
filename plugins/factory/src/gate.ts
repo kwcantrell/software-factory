@@ -1,5 +1,6 @@
 // The factory's human gates, decided for a Claude Code PreToolUse hook on Bash (hooks/hooks.json runs
-// human-gate.ts with node, which calls decide()). Any Bash call that runs `factory merge`, `factory approve` or `factory rework` is
+// human-gate.ts with node, which calls decide()). Any Bash call that runs `factory merge`,
+// `factory approve` or `factory rework` (through npx, a path, or the entry script `src/cli.ts`) is
 // turned into a permission prompt, so no agent can ship a job, approve a spec or reopen an approved
 // job without a person saying yes. Reads the PreToolUse payload on stdin; for anything else, and for
 // a payload it cannot read, it prints nothing and exits 0.
@@ -31,9 +32,10 @@ export function decide(payload: string): string {
   }
   if (typeof command !== 'string') return '';
   for (const [name, reason] of GATES) {
-    // `factory merge`, a quoted path (`".../factory" merge`, `'.../factory' merge`) or the npx form
-    // (`... -- factory merge`), with any whitespace between the two words.
-    if (new RegExp(`factory["']?\\s+${name}`).test(command)) {
+    // `factory merge`, a quoted path (`".../factory" merge`, `'.../factory' merge`), the npx form
+    // (`... -- factory merge`) or the entry script run directly (`node ".../src/cli.ts" merge`,
+    // `./src/cli.ts merge`), with any whitespace between the two words.
+    if (new RegExp(`(?:factory|cli\\.ts)["']?\\s+${name}`).test(command)) {
       const out = { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: reason } };
       return `${JSON.stringify(out)}\n`;
     }

@@ -19,7 +19,7 @@ function floatRepr(v: number): string {
 
 /** JSON string literal with every character outside printable ASCII escaped as \uXXXX. */
 function quote(s: string): string {
-  return JSON.stringify(s).replace(/[\u007f-￿]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+  return JSON.stringify(s).replace(/[\u007f-\uffff]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
 }
 
 /** JSON text with indent 2, as the job records and `--json` output have always been written. */

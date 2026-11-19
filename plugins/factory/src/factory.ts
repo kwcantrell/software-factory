@@ -170,7 +170,10 @@ export function configPath(root: string): string {
 
 const NAME = /^[a-z0-9][a-z0-9-]*$/;
 
-/** A JSON number written with a fraction or exponent ("2.0", "1e3"): a float, never a whole number. */
+/**
+ * A JSON number written with a fraction or exponent ("2.0", "1e3"): a float, never a whole number.
+ * Input side only (factory.json validation); pyfmt.ts `Float` is the output side, for writing floats.
+ */
 class JsonFloat {
   readonly value: number;
   constructor(value: number) {

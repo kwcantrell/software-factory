@@ -44,6 +44,12 @@ test('merge, approve and rework become a permission prompt, in every form', () =
       `${NPX} ${name} 3`,
       `${NPX.replace('${CLAUDE_PLUGIN_ROOT}', '/a/b')}  ${name} 007-x --into-current`,
       `cd /x && factory ${name} 3`,
+      `node "/home/me/.claude/plugins/cache/x/factory/0.3.0/src/cli.ts" ${name} 3`,
+      `node "$PLUGIN/src/cli.ts" ${name} 3`,
+      `node plugins/factory/src/cli.ts ${name} 3`,
+      `node src/cli.ts ${name} 1`,
+      `cd /x && ./src/cli.ts ${name} 1 redo`,
+      `node '/path with spaces/src/cli.ts' ${name} 3`,
     ]) {
       const p = hook(payload(command));
       assert.equal(p.status, 0, command);
@@ -66,6 +72,7 @@ test('anything else, including malformed input, prints nothing and exits 0', () 
     payload(`${NPX} followup add 3 --by builder "merge the docs"`),
     payload('git merge main'),
     payload('ls factory/jobs'),
+    payload('node plugins/factory/src/cli.ts status'),
     payload(42),
     JSON.stringify({ tool_input: null }),
     JSON.stringify([1, 2]),

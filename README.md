@@ -33,7 +33,7 @@ From a local checkout instead (for development, or to pin a version you have rev
 ```
 git clone https://github.com/kwcantrell/software-factory
 /plugin marketplace add ./software-factory        # then: /plugin install factory@software-factory
-claude --plugin-dir ./software-factory            # or load it for one session without installing
+claude --plugin-dir ./software-factory/plugins/factory   # or load it for one session without installing
 ```
 
 ## Use
