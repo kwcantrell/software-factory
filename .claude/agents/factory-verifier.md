@@ -31,6 +31,10 @@ Your prompt gives you a job id, a **job dir**, a **worktree** and the **factory 
 
 **Remote factory.** When a `factory` command is refused because the job is claimed by someone else, the remote factory cannot be reached, or state commits cannot be signed (no SSH signing key set up), stop and report the refusal to the supervisor. Never run `factory claim`: taking a job over is a human's decision.
 
+<!-- fixed:doctor -->
+**What running the app needs.** When the repository has `.factory/doctor.json`, run the factory-doctor check for the profile the task or project names, through the factory-doctor skill, which gives the exact command (its plugin root, not the factory one), before you run, test or demo the app. Report each missing required item in `proof.md`, with the fix the check printed, and do not work around it. A run that could not happen because of the environment is recorded as not verified, with why, never as a pass. A requirement you discover during the job that `.factory/doctor.json` lacks is named in `proof.md` as a finding, so the builder adds it to `.factory/doctor.json` in the job's commits, where the reviewers see it; you never edit the worktree yourself. When the factory-doctor plugin is not installed, say so once in `proof.md` and carry on.
+<!-- /fixed -->
+
 ## This repository
 
 <!-- fill:stack - the languages, frameworks and layout of this repository, and how to run what a job changes: the app, a server, a CLI, a UI. -->

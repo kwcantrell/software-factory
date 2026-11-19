@@ -71,6 +71,25 @@ test('one template per station kind, each with the fixed and fill sections', () 
   }
 });
 
+test('the builder and verifier run the factory-doctor check first, in a fixed section', withRepo((r) => {
+  for (const kind of ['builder', 'verifier'] as const) {
+    const text = readFileSync(join(PLUGIN, 'templates', 'agents', `${kind}.md`), 'utf8');
+    const section = /<!-- fixed:doctor -->([\s\S]*?)<!-- \/fixed -->/.exec(text)?.[1] ?? '';
+    const flat = section.replace(/\s+/g, ' ');
+    assert.match(flat, /When the repository has `\.factory\/doctor\.json`, run the factory-doctor check for the profile the task or project names, through the factory-doctor skill/, kind);
+    assert.match(flat, /before you run, test or demo the app/, kind);
+    assert.match(flat, new RegExp(`Report each missing required item in \`${kind === 'builder' ? 'build' : 'proof'}\\.md\`.*do not work around it`), kind);
+    assert.match(flat, /(is added|adds it) to `\.factory\/doctor\.json` in the job's commits/, kind);
+    assert.match(flat, /When the factory-doctor plugin is not installed, say so once/, kind);
+    if (kind === 'verifier') assert.match(flat, /could not happen because of the environment is recorded as not verified, with why, never as a pass/);
+    // A project agent without the section fails check and is not used.
+    const full = made(r, kind);
+    writeAgent(r, kind, full.replace(/<!-- fixed:doctor -->[\s\S]*?<!-- \/fixed -->\n/, ''));
+    onlyProblem(r, new RegExp(`factory-${kind}\\.md: fixed section 'doctor' is missing or altered`));
+    writeAgent(r, kind, full);
+  }
+}));
+
 // ------------------------------------------------------------------ resolution
 
 test('with no project agents every station uses the shipped agent', withRepo((r) => {

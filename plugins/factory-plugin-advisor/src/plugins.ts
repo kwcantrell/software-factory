@@ -18,6 +18,7 @@ export const FALLBACK_PLUGINS = [
   'factory',
   'factory-dev',
   'factory-docs',
+  'factory-doctor',
   'factory-plugin-advisor',
   'factory-plugin-builder',
   'factory-plugin-discover',

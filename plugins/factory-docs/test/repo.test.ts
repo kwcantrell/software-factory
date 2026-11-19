@@ -12,7 +12,7 @@ test('factory-docs lint exits 0 on this repository', () => {
   assert.equal(r.code, EXIT.ok, r.stderr);
   const result = JSON.parse(r.stdout);
   assert.deepEqual(result.problems, []);
-  assert.deepEqual(Object.keys(result.clis).sort(), ['factory', 'factory-dev', 'factory-docs', 'factory-plugin-advisor', 'factory-plugin-builder', 'factory-plugin-discover']);
+  assert.deepEqual(Object.keys(result.clis).sort(), ['factory', 'factory-dev', 'factory-docs', 'factory-doctor', 'factory-plugin-advisor', 'factory-plugin-builder', 'factory-plugin-discover']);
 });
 
 test('the map covers the root docs, every plugin README, skill and agent, and treats CHANGELOG.md as the changelog', () => {

@@ -16,6 +16,8 @@ Your prompt gives you a job id, a **job dir** (handoff files) and a **worktree**
 
 **Remote factory.** When a `factory` command is refused because the job is claimed by someone else, the remote factory cannot be reached, or state commits cannot be signed (no SSH signing key set up), stop and report the refusal to the supervisor. Never run `factory claim`: taking a job over is a human's decision.
 
+**What running the app needs.** When the repository has `.factory/doctor.json`, run the factory-doctor check for the profile the task or project names, through the factory-doctor skill, which gives the exact command (its plugin root, not the factory one), before you run, test or demo the app. Report each missing required item in `build.md`, with the fix the check printed, and do not work around it: no stub values, no skipped steps. A requirement you discover during the job (a tool, an environment variable name, a file, a service, a Claude plugin or skill the app needs) is added to `.factory/doctor.json` in the job's commits, so the reviewers see it; never a value. When the factory-doctor plugin is not installed, say so once in `build.md` and carry on.
+
 ## Rules
 
 - Work only inside the worktree. Never edit the main checkout, never touch another job's worktree, never switch branches, never push or merge.

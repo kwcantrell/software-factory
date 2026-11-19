@@ -99,6 +99,14 @@ test('representative tasks rank the expected plugin first against this repositor
   for (const [task, name] of EXPECTED) assert.equal(match(catalog, task).available[0]?.name, name, task);
 });
 
+test('what an app needs to run ranks factory-doctor first against the real marketplace', () => {
+  const catalog = readCatalog({ HOME: join(s.dir, 'empty-home') }, { pluginRoot: PLUGIN_ROOT, cwd: s.cwd });
+  for (const task of ['what env vars do I need to run this app', 'which tools and environment variables does the app need for the stage profile']) {
+    const r = match(catalog, task);
+    assert.equal(r.available[0]?.name, 'factory-doctor', `${task}: ${JSON.stringify(r.available.map((e) => [e.name, e.score]))}`);
+  }
+});
+
 test('ranking: the best skill in a plugin, with the reason, best first', () => {
   const t = sandbox({ installed: ALL, elsewhere: [], disabled: [] });
   try {
