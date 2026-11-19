@@ -107,6 +107,15 @@ test('what an app needs to run ranks factory-doctor first against the real marke
   }
 });
 
+test('"sign my git commits" ranks factory-signing first against this repository\'s real marketplace', () => {
+  const catalog = readCatalog({ HOME: join(s.dir, 'empty-home') }, { pluginRoot: PLUGIN_ROOT, cwd: s.cwd });
+  for (const task of ['sign my git commits', 'set up SSH commit signing']) {
+    const r = match(catalog, task);
+    assert.equal(r.available[0]?.name, 'factory-signing', `${task}: ${JSON.stringify(r.available.map((e) => [e.name, e.score]))}`);
+    assert.equal(r.none_applicable, false);
+  }
+});
+
 test('ranking: the best skill in a plugin, with the reason, best first', () => {
   const t = sandbox({ installed: ALL, elsewhere: [], disabled: [] });
   try {

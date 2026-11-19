@@ -48,6 +48,12 @@
       "source": "./plugins/factory-doctor",
       "description": "Tracks and checks what an app needs to run, per profile (dev, stage, test): env vars by name, tools and versions, files, services, Claude plugins and skills, in a committed .factory/doctor.json; checks this machine against a profile and scans the repo to propose missing requirements. Never stores or prints a value.",
       "license": "MIT"
+    },
+    {
+      "name": "factory-signing",
+      "source": "./plugins/factory-signing",
+      "description": "Makes every git commit Claude makes signed with your own SSH key through your ssh-agent: diagnoses what is missing, sets git up only when you confirm, prints your allowed-signers line, and a hook that stops unsigned commits in repos that require signing",
+      "license": "MIT"
     }
   ]
 }

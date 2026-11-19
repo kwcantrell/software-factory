@@ -1,0 +1,13 @@
+{
+  "name": "factory-signing",
+  "version": "0.4.0",
+  "private": true,
+  "description": "CLI for the factory-signing Claude Code plugin (status, setup, allowed-signers, hook); run by its skill via npx and its hook via node.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "bin": {
+    "factory-signing": "src/cli.ts"
+  }
+}

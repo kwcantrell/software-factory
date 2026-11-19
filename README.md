@@ -195,7 +195,7 @@ Then each person runs `factory init`. The first creates the branch (an orphan wi
 
 **Trust.** Whoever can push to the state branch writes what your commands read. Signatures decide what may be merged (see **Signing** below): `factory merge` refuses a job unless every change to it was signed by a key your project's allowed-signers file lists, so a hand-edited `job.json` that only looks approved is not enough. Beyond that, the CLI accepts only what it writes itself: a branch holding a symbolic link or submodule anywhere is refused (and the checkout never materialises one), a job dir file that is not a regular file is never read or published, and a `job.json` whose `id` is not its directory name, whose `branch` is not `factory/<id>` or whose `base` is not a commit hash is refused. A job's `worktree` is always your own `factory/worktrees/<id>`, whatever path the branch holds. One `job.json` that is not valid JSON or not the shape the CLI writes does not take the line down: `status`, `stats`, `followup list` and the dashboard skip it with one warning naming its directory and why (on stderr; in the browser console for the dashboard), and every command that acts on that job by id refuses it. The dashboard escapes every `job.json` value it renders, and its Content-Security-Policy keeps a job file from sending anything off this machine. You can run `factory` from anywhere, including inside `factory/jobs/`: it finds the project checkout that holds the factory dir.
 
-**Signing.** In a remote factory every state commit the CLI makes is signed with your own SSH key (`git commit -S`), and `factory merge` verifies the job's history before merging. Set it up once:
+**Signing.** In a remote factory every state commit the CLI makes is signed with your own SSH key (`git commit -S`), and `factory merge` verifies the job's history before merging. The [`factory-signing`](plugins/factory-signing/README.md) plugin does the setup below for you: `factory-signing status` says what is missing, `setup` shows the git config changes and applies them only when you confirm, `allowed-signers` prints your line for step 2, and its hook stops Claude from making an unsigned commit (or a state change that would be refused) before it happens. Loading your key stays yours: `! ssh-add <key>` at the Claude Code prompt, since Claude cannot enter a passphrase. Set it up once:
 
 1. Have an SSH key (`ssh-keygen -t ed25519` makes one) and tell git to sign with it: `git config --global gpg.format ssh` and `git config --global user.signingkey ~/.ssh/id_ed25519` (or the same without `--global`, in the project checkout). The CLI reads these from the project checkout and refuses any command that changes a job, before changing anything, until they are set (it names the settings). Only SSH signing is supported: GPG (`gpg.format openpgp`) is refused, because the allowed-signers file lists SSH keys; at merge, a state commit with an OpenPGP or X.509 signature is refused even when git calls it good, since git checks those against your own keyring, not the file.
 2. Add your public key to the project's allowed-signers file, one line per person, `<email> <public key>` (for example `ann@example.com ssh-ed25519 AAAA...`, from `~/.ssh/id_ed25519.pub`), **by pull request** like any code change, and point `remote.allowed_signers` in `factory.json` at it (say `".factory/allowed_signers"`).
@@ -270,6 +270,7 @@ plugins/factory-docs/                      keeps this repo's docs in sync with i
 plugins/factory-plugin-advisor/            tracks recurring friction with these plugins and drafts fixes: record, suggest, file
 plugins/factory-plugin-discover/           finds the plugin or skill that fits a software-factory task: catalog, match, install, a prompt hook
 plugins/factory-doctor/                    what an app needs to run, per profile, in .factory/doctor.json: check, scan, add, remove, init
+plugins/factory-signing/                   signs every commit Claude makes with your own SSH key: status, setup, allowed-signers, a commit hook
 docs/docs-map.json                         factory-docs' map: each doc and the globs of the code it describes
 templates/plugin/                          the template `npm run new-plugin -- <name>` copies (not in the marketplace)
 package.json, tsconfig.json                dev tooling only: typecheck, tests, new-plugin
@@ -306,6 +307,12 @@ To keep a record of what running an application needs (tools and versions, env v
 services, Claude plugins and skills, per profile) and check a machine against it, the
 `factory-doctor` plugin keeps `.factory/doctor.json` in the application's repo; the factory's builder
 and verifier run its check first; see [plugins/factory-doctor/README.md](plugins/factory-doctor/README.md).
+
+When a repository requires signed commits (`commit.gpgsign`, or a remote factory's signed state
+commits), the `factory-signing` plugin makes every commit Claude makes signed with your own SSH key
+through your ssh-agent: `status` diagnoses, `setup` configures git only after you confirm, and a
+hook denies a commit that would fail or go unsigned; see
+[plugins/factory-signing/README.md](plugins/factory-signing/README.md).
 
 Contributing: see [CONTRIBUTING.md](CONTRIBUTING.md). Changes are listed in [CHANGELOG.md](CHANGELOG.md). MIT licensed ([LICENSE](LICENSE)).
 
