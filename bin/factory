@@ -394,8 +394,15 @@ def cmd_merge(root, a):
                             f"Merge {job['branch']}: {job['title']}", job["branch"]],
                            cwd=main, capture_output=True, text=True)
         if p.returncode != 0:
+            # Only unmerged paths mean a conflict; anything else (no git identity, a hook, a lock)
+            # is reported in git's own words so the human is not sent looking for a conflict.
+            conflicted = git("diff", "--name-only", "--diff-filter=U", cwd=main, check=False)
             git("merge", "--abort", cwd=main, check=False)
-            need_human(job, f"merge into {current} conflicts - the branch needs a rebase")
+            if conflicted:
+                need_human(job, f"merge into {current} conflicts - the branch needs a rebase")
+            else:
+                error = " ".join((p.stderr.strip() or p.stdout.strip()).split())
+                need_human(job, f"merge into {current} failed: {error or f'git exited {p.returncode}'}")
             raise Escalated(job["needs_human"] + "\n" + (p.stdout + p.stderr).strip())
         drop_worktree(job, keep_branch=False)
         job["status"], job["needs_human"] = "merged", None

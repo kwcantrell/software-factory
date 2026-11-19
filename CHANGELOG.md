@@ -24,6 +24,13 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   that checks the tag against the plugin version and publishes this changelog's notes.
 - `CLAUDE.md`, `CONTRIBUTING.md`, pull request and issue templates.
 
+### Fixed
+
+- `factory merge` no longer blames every failed merge on a conflict. Only a merge that leaves
+  unmerged paths is reported as "conflicts - the branch needs a rebase"; any other failure (a
+  missing git identity, a hook, a lock) escalates with git's own error text as the reason in
+  `job.json` and on the dashboard.
+
 ## [0.2.0] - 2026-11-14
 
 The first versioned release of the plugin: a multi-agent line that runs work through
