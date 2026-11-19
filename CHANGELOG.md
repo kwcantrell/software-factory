@@ -6,6 +6,23 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-19
+
+### Upgrading
+
+- **Moving versions:** run `factory-doctor migrate` (a dry run; `--apply` makes the repo steps).
+  It replaced `factory upgrade`, which now only points to it.
+- **Project station agents:** the builder and verifier templates have a new fixed `doctor`
+  section, so a project's own `factory-builder` and `factory-verifier` agents fail `factory agents
+  check` (and the line runs the shipped agent instead) until you refresh them with
+  `/factory:agents`. Reviewer agents are unchanged.
+- **Remote factory users:** every state commit is now signed. Set up SSH signing (the
+  `factory-signing` plugin helps) and commit the `allowed_signers` file `remote.allowed_signers`
+  names before anyone can merge. A job that reached `ship` before 0.5.0 has no recorded commit:
+  send it back with `factory rework`, then `factory built` records it.
+- **Advisor sharing:** `"advisor": {"share": true}` shares nothing until each user runs
+  `factory-plugin-advisor share allow` for that remote.
+
 ### Added
 
 - factory-doctor `migrate`: moves a repo between software-factory versions, **up or down**, and
@@ -374,7 +391,8 @@ intake -> build -> proof -> review -> ship -> done.
 - A dependency-free live dashboard (`dashboard/index.html`) and `factory stats` line metrics.
 - Per-job builder model choice; the verifier runs on Sonnet.
 
-[Unreleased]: https://github.com/kwcantrell/software-factory/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/kwcantrell/software-factory/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/kwcantrell/software-factory/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/kwcantrell/software-factory/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/kwcantrell/software-factory/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/kwcantrell/software-factory/releases/tag/v0.2.0

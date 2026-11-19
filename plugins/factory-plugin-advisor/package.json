@@ -1,6 +1,6 @@
 {
   "name": "factory-plugin-advisor",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "CLI for the factory-plugin-advisor Claude Code plugin (record, list, show, suggest, dismiss, file, hook); run by its skill via npx and its hook via node.",
   "type": "module",

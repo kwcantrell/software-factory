@@ -63,6 +63,9 @@ const BASE_JOB_FIELDS = [
   'worktree', 'proof_attempts', 'rounds', 'followups', 'created', 'history', 'updated',
 ];
 const BASE_CONFIG_KEYS = ['reviewers', 'max_review_rounds', 'max_proof_attempts', 'spec_gate'];
+/** 0.5.0 adds `remote` and `advisor`, and the fields `owner` (a remote factory's claim, 021) and `head` (the commit proof and review passed, 028). */
+const V050_CONFIG_KEYS = [...BASE_CONFIG_KEYS, 'specs_dir', 'remote', 'advisor'];
+const V050_JOB_FIELDS = [...BASE_JOB_FIELDS.slice(0, 15), 'owner', 'created', 'history', 'updated', 'head'];
 
 /**
  * The versions this plumbing moves a repo between, oldest first: the factory.json keys each one
@@ -77,12 +80,8 @@ export const VERSIONS: readonly { id: string; config_keys: string[]; job_fields:
   { id: '0.3.0', config_keys: [...BASE_CONFIG_KEYS, 'specs_dir'], job_fields: BASE_JOB_FIELDS },
   { id: '0.3.1', config_keys: [...BASE_CONFIG_KEYS, 'specs_dir'], job_fields: BASE_JOB_FIELDS },
   { id: '0.4.0', config_keys: [...BASE_CONFIG_KEYS, 'specs_dir'], job_fields: BASE_JOB_FIELDS },
-  {
-    id: 'unreleased',
-    config_keys: [...BASE_CONFIG_KEYS, 'specs_dir', 'remote', 'advisor'],
-    // `owner`: a remote factory's claim (021). `head`: the commit proof and review passed (028).
-    job_fields: [...BASE_JOB_FIELDS.slice(0, 15), 'owner', 'created', 'history', 'updated', 'head'],
-  },
+  { id: '0.5.0', config_keys: V050_CONFIG_KEYS, job_fields: V050_JOB_FIELDS },
+  { id: 'unreleased', config_keys: V050_CONFIG_KEYS, job_fields: V050_JOB_FIELDS },
 ];
 /** The oldest version migrate-repo moves a repo to: the first TypeScript CLI. */
 const OLDEST_TARGET = '0.3.0';

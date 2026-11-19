@@ -88,3 +88,7 @@ only `git` and `ssh-add -L`, never a shell.
 factory's state commits (the factory CLI against a temp bare remote) that `factory merge` accepts.
 Tests that need OpenSSH are skipped, saying why, when `ssh-agent`, `ssh-add` or `ssh-keygen` is
 missing.
+
+## Versioning
+
+Every plugin in this marketplace carries the same version, the repository's. `CHANGELOG.md` lists what changed in each release. A minor release (such as 0.4.0 to 0.5.0) adds features; a patch release carries fixes only.
