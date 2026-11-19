@@ -1,6 +1,6 @@
 {
   "name": "factory-plugin-advisor",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Tracks recurring friction with the software-factory plugins (CLI failures, workarounds, manual steps, missing guidance, user corrections) in a local redacted log, and drafts a suggested plugin change with a paste-ready /factory:run request once an issue recurs; with explicit confirmation, files the draft as a GitHub issue.",
   "author": {
     "name": "Kalen Cantrell"
