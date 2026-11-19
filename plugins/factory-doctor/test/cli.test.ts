@@ -1,8 +1,9 @@
 // End to end: runs the exact npx command lines from the skill, the way Claude Code would after
-// installing the plugin (a fresh copy, unrelated cwd, no npm install or build step).
+// installing the plugin (a fresh copy, no npm install or build step), each in a fresh temp
+// repository with a temp HOME and CLAUDE_CONFIG_DIR (never the user's).
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -30,6 +31,31 @@ env.CLAUDE_PLUGIN_ROOT = pluginRoot;
 // Empty npx cache, and offline: proves nothing is fetched from the registry.
 env.npm_config_cache = join(scratch, 'npm-cache');
 env.npm_config_offline = 'true';
+env.HOME = join(scratch, 'home');
+env.CLAUDE_CONFIG_DIR = join(scratch, 'claude');
+delete env.FACTORY_DOCTOR_PROFILE;
+
+let repoCount = 0;
+/** A fresh repository: a .git dir, a .env.example for scan, and (unless bare) a doctor file. */
+function repo(withFile = true): string {
+  const dir = join(scratch, `repo-${++repoCount}`);
+  mkdirSync(join(dir, '.git'), { recursive: true });
+  writeFileSync(join(dir, '.env.example'), 'DATABASE_URL=\n');
+  if (withFile) {
+    mkdirSync(join(dir, '.factory'));
+    const file = { version: 1, default_profile: 'dev', profiles: { dev: { requires: [{ kind: 'tool', name: 'node', why: 'runs the app' }, { kind: 'env', name: 'OLD_VAR', optional: true, why: 'legacy' }] } } };
+    writeFileSync(join(dir, '.factory', 'doctor.json'), `${JSON.stringify(file, null, 2)}\n`);
+  }
+  return dir;
+}
+
+const VALUES: Record<string, string> = { profile: 'dev', n: '1', kind: 'env', name: 'NEW_VAR', why: 'the app reads it' };
+
+/** Fills a skill line's `<placeholder>` values; `remove` removes the env var the file holds. */
+function fill(command: string): string {
+  const filled = command.replace(/<([a-z]+)>/g, (m, name: string) => VALUES[name] ?? m);
+  return filled.includes(' remove ') ? filled.replace('NEW_VAR', 'OLD_VAR') : filled;
+}
 
 function skillCommands(): string[] {
   const text = readFileSync(join(pluginRoot, SKILL), 'utf8');
@@ -37,8 +63,8 @@ function skillCommands(): string[] {
   return blocks.flatMap((b) => b.split('\n')).filter((line) => line.startsWith('npx '));
 }
 
-function sh(command: string): { status: number | null; stdout: string; stderr: string } {
-  const result = spawnSync('sh', ['-c', command], { cwd, env, encoding: 'utf8', timeout: 60_000 });
+function sh(command: string, dir = cwd): { status: number | null; stdout: string; stderr: string } {
+  const result = spawnSync('sh', ['-c', command], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
@@ -49,20 +75,39 @@ test('the skill calls the CLI only through the shared npx invocation', () => {
   assert.equal(existsSync(join(pluginRoot, 'node_modules')), false);
 });
 
-test('every skill command line runs from a fresh copy and exits 0', () => {
-  for (const command of skillCommands()) {
-    const { status, stdout, stderr } = sh(command);
+test('allowed-tools pre-approves only check, scan, profiles and --help', () => {
+  const text = readFileSync(join(pluginRoot, SKILL), 'utf8');
+  const line = /^allowed-tools: (.*)$/m.exec(text)?.[1] ?? '';
+  const rules = [...line.matchAll(/Bash\((.*?):\*\)/g)].map((m) => m[1] ?? '');
+  assert.deepEqual(rules, ['check', 'scan', 'profiles', '--help'].map((c) => `${INVOCATION} ${c}`));
+});
+
+test('every skill command line runs from a fresh copy, in a fresh repository, and exits 0', () => {
+  const commands = skillCommands();
+  for (const c of ['check', 'scan', 'profiles', 'init', 'add', 'remove', '--help']) {
+    assert.ok(commands.some((l) => l.startsWith(`${INVOCATION} ${c}`)), `the skill runs ${c}`);
+  }
+  for (const line of commands) {
+    const command = fill(line);
+    const dir = repo(!command.includes(' init'));
+    const before = existsSync(join(dir, '.factory', 'doctor.json')) ? readFileSync(join(dir, '.factory', 'doctor.json'), 'utf8') : null;
+    const { status, stdout, stderr } = sh(command, dir);
     assert.equal(status, 0, `${command}\nstderr: ${stderr}`);
     assert.notEqual(stdout, '', command);
     if (command.endsWith(' --help')) assert.match(stdout, new RegExp(`^Usage: ${CLI_NAME} `));
     if (command.includes(' --json')) JSON.parse(stdout);
+    const after = existsSync(join(dir, '.factory', 'doctor.json')) ? readFileSync(join(dir, '.factory', 'doctor.json'), 'utf8') : null;
+    if (command.includes('--confirm')) assert.notEqual(after, before, `${command} wrote the file`);
+    else assert.equal(after, before, `${command} changed nothing`);
   }
 });
 
-test('hello --json through npx prints the greeting as JSON', () => {
-  const { status, stdout } = sh(`${INVOCATION} hello --json "Ada Lovelace"`);
-  assert.equal(status, 0);
-  assert.deepEqual(JSON.parse(stdout), { greeting: 'Hello, Ada Lovelace!' });
+test('check through npx: exit 1 with the report on stderr when something required is missing', () => {
+  const dir = repo();
+  const { status, stdout, stderr } = sh(`${INVOCATION} add env NEEDED_VAR --profile dev --why "needed" --confirm && ${INVOCATION} check`, dir);
+  assert.equal(status, 1);
+  assert.match(stdout, /^Added in/);
+  assert.match(stderr, /^missing env NEEDED_VAR: not set\n {8}fix: set NEEDED_VAR yourself/m);
 });
 
 test('an unknown command through npx exits 2 with the message on stderr', () => {
