@@ -54,6 +54,7 @@ export const FACTORY_COMMANDS = [
   'status',
   'stats',
   'upgrade',
+  'migrate-repo',
   'dashboard',
 ] as const;
 

@@ -1,6 +1,9 @@
-// `factory upgrade`: move a repository from an older Software Factory to this one.
+// `factory migrate-repo`: the plumbing behind `factory-doctor migrate`, which plans a move between
+// software-factory versions and runs this command for the part that rewrites the factory runtime dir
+// (plugins/factory/src is the only writer of job.json). It prints one JSON report; only --apply
+// writes. `factory upgrade` itself moved to `factory-doctor migrate` and only says so.
 //
-// Three parts, each planned first and shown as a dry run; only --apply writes:
+// Moving up (--to at or after --from), as `factory upgrade` did:
 //   - settings: Claude Code settings that enable the old plugin (factory@kwcantrell-plugins, or
 //     factory@<any marketplace but software-factory>) are switched to factory@software-factory;
 //   - runtime dir: factory/ written by the Python CLI gets the job fields, dashboard and .gitignore
@@ -9,6 +12,12 @@
 //     factory-upgrade-backup-<time>/ under the repo's git dir, since they can hold secrets;
 //   - manual steps: what it must not do itself (factory.json keys the CLI refuses, tracked files that
 //     still name the old CLI, `claude plugin` commands), listed with what to do.
+// Moving down (--to before --from), while this newer CLI that reads both formats is installed:
+//   - refused, changing nothing, when going back would lose meaning: a target before 0.3.0 (the
+//     retired Python CLI), a remote factory (its state branch and signed history), or an unfinished
+//     job whose recorded commit (`head`) protects its merge;
+//   - otherwise the factory.json keys and job.json fields the target does not know are removed
+//     (factory.json backed up in the private git-dir backup, job.json under factory/upgrade-backup-).
 // It never runs `claude`, and changes user-scope settings only with an explicit --scope user.
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
@@ -48,6 +57,38 @@ const OLD_DASHBOARDS: Record<string, string> = {
     'the Python CLI with follow-ups (kwcantrell-plugins, or software-factory 0.2.0)',
 };
 
+/** The job.json fields every CLI from 0.2.0 to 0.4.0 writes, in its order. */
+const BASE_JOB_FIELDS = [
+  'id', 'title', 'stage', 'status', 'needs_human', 'activity', 'spec', 'spec_sha', 'branch', 'base', 'base_branch',
+  'worktree', 'proof_attempts', 'rounds', 'followups', 'created', 'history', 'updated',
+];
+const BASE_CONFIG_KEYS = ['reviewers', 'max_review_rounds', 'max_proof_attempts', 'spec_gate'];
+
+/**
+ * The versions this plumbing moves a repo between, oldest first: the factory.json keys each one
+ * accepts and the job.json fields it knows. `factory-doctor migrate` holds the full registry (what
+ * each version changes and how to move across it); its tests check this table against it through
+ * `factory migrate-repo --versions`. `unreleased` is the [Unreleased] changes of CHANGELOG.md; a
+ * release renames it to the new version, here and in factory-doctor's registry.
+ */
+export const VERSIONS: readonly { id: string; config_keys: string[]; job_fields: string[] }[] = [
+  { id: 'kwcantrell', config_keys: BASE_CONFIG_KEYS, job_fields: BASE_JOB_FIELDS.filter((f) => f !== 'followups') },
+  { id: '0.2.0', config_keys: [...BASE_CONFIG_KEYS, 'specs_dir'], job_fields: BASE_JOB_FIELDS },
+  { id: '0.3.0', config_keys: [...BASE_CONFIG_KEYS, 'specs_dir'], job_fields: BASE_JOB_FIELDS },
+  { id: '0.3.1', config_keys: [...BASE_CONFIG_KEYS, 'specs_dir'], job_fields: BASE_JOB_FIELDS },
+  { id: '0.4.0', config_keys: [...BASE_CONFIG_KEYS, 'specs_dir'], job_fields: BASE_JOB_FIELDS },
+  {
+    id: 'unreleased',
+    config_keys: [...BASE_CONFIG_KEYS, 'specs_dir', 'remote', 'advisor'],
+    // `owner`: a remote factory's claim (021). `head`: the commit proof and review passed (028).
+    job_fields: [...BASE_JOB_FIELDS.slice(0, 15), 'owner', 'created', 'history', 'updated', 'head'],
+  },
+];
+/** The oldest version migrate-repo moves a repo to: the first TypeScript CLI. */
+const OLDEST_TARGET = '0.3.0';
+
+const versionIndex = (id: string): number => VERSIONS.findIndex((v) => v.id === id);
+
 /** The `--repo`/cwd is not a git checkout, or a path argument is wrong: exit 2. */
 export class UsageProblem extends Error {}
 
@@ -56,15 +97,24 @@ export interface UpgradeOptions {
   apply: boolean;
   /** The settings scopes to change; null means the default, project and local. */
   scopes: Scope[] | null;
+  /** The version the repo is at and the one to move it to (ids of VERSIONS). */
+  from: string;
+  to: string;
 }
 
 export interface Report {
   repo: string;
   factory_dir: string;
+  from: string;
+  to: string;
+  direction: 'upgrade' | 'downgrade';
   mode: 'dry-run' | 'apply';
   found: string[];
   settings: { scope: Scope; file: string; selected: boolean; changes: string[] }[];
-  runtime: { dir: string; changes: string[] };
+  /** factory.json changes (a downgrade removes keys the target refuses). */
+  config: { file: string; changes: string[] };
+  /** Each change with the file it touches, relative to the runtime dir. */
+  runtime: { dir: string; changes: { file: string; change: string }[] };
   manual: string[];
   /** Where the runtime dir's originals were copied, under factory/. */
   backup: string | null;
@@ -241,7 +291,7 @@ function fileLockHeld(path: string): boolean {
 
 interface RuntimePlan {
   dir: string;
-  changes: string[];
+  changes: { file: string; change: string }[];
   /** Files (relative to dir) whose originals the backup keeps. */
   originals: string[];
   apply: (() => void)[];
@@ -270,24 +320,28 @@ function writeAtomic(path: string, text: string): void {
   }
 }
 
+/** Refused while a live factory command holds the current CLI's lock. */
+function checkPidLock(root: string): void {
+  const pidLock = join(root, LOCK_FILE);
+  if (!existsSync(pidLock)) return;
+  const owner = Number.parseInt(readFileSync(pidLock, 'utf8'), 10);
+  if (Number.isInteger(owner) && owner > 0 && alive(owner)) {
+    throw new Refused(`the factory lock (${pidLock}) is held by process ${owner}; wait for it to finish, then run the migration again`);
+  }
+}
+
 function planRuntime(root: string, found: string[]): RuntimePlan {
   const plan: RuntimePlan = { dir: root, changes: [], originals: [], apply: [] };
   if (!existsSync(root)) return plan;
 
-  const pidLock = join(root, LOCK_FILE);
-  if (existsSync(pidLock)) {
-    const owner = Number.parseInt(readFileSync(pidLock, 'utf8'), 10);
-    if (Number.isInteger(owner) && owner > 0 && alive(owner)) {
-      throw new Refused(`the factory lock (${pidLock}) is held by process ${owner}; wait for it to finish, then run the upgrade again`);
-    }
-  }
+  checkPidLock(root);
   const oldLock = join(root, '.lock');
   if (existsSync(oldLock)) {
     if (fileLockHeld(oldLock)) {
-      throw new Refused(`${oldLock} is locked by a running factory command (the old CLI); wait for it to finish, then run the upgrade again`);
+      throw new Refused(`${oldLock} is locked by a running factory command (the old CLI); wait for it to finish, then run the migration again`);
     }
     found.push(`runtime dir: .lock, the lock file of the Python CLI`);
-    plan.changes.push('remove .lock (the Python CLI\'s lock file; the current CLI locks with .lock.pid)');
+    plan.changes.push({ file: '.lock', change: 'remove .lock (the Python CLI\'s lock file; the current CLI locks with .lock.pid)' });
     plan.originals.push('.lock');
     plan.apply.push(() => unlinkSync(oldLock));
   }
@@ -295,14 +349,14 @@ function planRuntime(root: string, found: string[]): RuntimePlan {
   const current = readFileSync(join(PLUGIN_ROOT, 'dashboard', 'index.html'));
   const dashboard = join(root, 'index.html');
   if (!existsSync(dashboard)) {
-    plan.changes.push('install the dashboard (index.html)');
+    plan.changes.push({ file: 'index.html', change: 'install the dashboard (index.html)' });
     plan.apply.push(() => writeFileSync(dashboard, current));
   } else {
     const have = readFileSync(dashboard);
     if (!have.equals(current)) {
       const sha = createHash('sha256').update(have).digest('hex');
       found.push(`runtime dir: dashboard (index.html) from ${OLD_DASHBOARDS[sha] ?? 'another version'}`);
-      plan.changes.push('replace index.html with the current dashboard');
+      plan.changes.push({ file: 'index.html', change: 'replace index.html with the current dashboard' });
       plan.originals.push('index.html');
       plan.apply.push(() => writeFileSync(dashboard, current));
     }
@@ -310,13 +364,13 @@ function planRuntime(root: string, found: string[]): RuntimePlan {
 
   const ignore = join(root, '.gitignore');
   if (!existsSync(ignore)) {
-    plan.changes.push('create .gitignore (factory/ is runtime state, not source)');
+    plan.changes.push({ file: '.gitignore', change: 'create .gitignore (factory/ is runtime state, not source)' });
     plan.apply.push(() => writeFileSync(ignore, '# Factory runtime state: job records, worktrees, dashboard copy.\n*\n'));
   }
 
   const jobsDir = join(root, 'jobs');
   if (!existsSync(jobsDir)) {
-    plan.changes.push('create jobs/');
+    plan.changes.push({ file: 'jobs', change: 'create jobs/' });
     plan.apply.push(() => mkdirSync(jobsDir, { recursive: true }));
     return plan;
   }
@@ -329,12 +383,12 @@ function planRuntime(root: string, found: string[]): RuntimePlan {
     try {
       job = JSON.parse(readFileSync(path, 'utf8'));
     } catch (error) {
-      throw new Refused(`${path} is not valid JSON (${(error as Error).message}); fix it by hand, then run the upgrade again`);
+      throw new Refused(`${path} is not valid JSON (${(error as Error).message}); fix it by hand, then run the migration again`);
     }
-    if (!isObj(job)) throw new Refused(`${path} is not a JSON object; fix it by hand, then run the upgrade again`);
+    if (!isObj(job)) throw new Refused(`${path} is not a JSON object; fix it by hand, then run the migration again`);
     const lacking = REQUIRED_FIELDS.filter((k) => !Object.hasOwn(job, k));
     if (lacking.length > 0) {
-      throw new Refused(`${path} has no ${lacking.join(', ')}; the upgrade cannot invent them - fix it by hand`);
+      throw new Refused(`${path} has no ${lacking.join(', ')}; the migration cannot invent them - fix it by hand`);
     }
     const missing = JOB_FIELDS.filter((k) => !Object.hasOwn(job, k));
     if (missing.length === 0) continue;
@@ -342,7 +396,7 @@ function planRuntime(root: string, found: string[]): RuntimePlan {
     for (const k of missing) missingAll.add(k);
     const next = withFields(job, missing);
     const shown = missing.map((k) => `${k} (${JSON.stringify(next[k])})`).join(', ');
-    plan.changes.push(`jobs/${id}/job.json: add ${shown}`);
+    plan.changes.push({ file: `jobs/${id}/job.json`, change: `jobs/${id}/job.json: add ${shown}` });
     plan.originals.push(join('jobs', id, 'job.json'));
     plan.apply.push(() => writeAtomic(path, `${dumps(next)}\n`));
   }
@@ -429,7 +483,7 @@ function manualSteps(
   for (const plan of settings) {
     if (plan.selected || plan.changes.length === 0) continue;
     steps.push(
-      `${plan.scope} settings (${plan.path}) still enable the old plugin; to switch them run \`factory upgrade --apply --scope ${plan.scope}${repoFlag}\`, which will: ${plan.changes.join('; ')}`,
+      `${plan.scope} settings (${plan.path}) still enable the old plugin; to switch them run \`factory-doctor migrate --apply --scope ${plan.scope}${repoFlag}\`, which will: ${plan.changes.join('; ')}`,
     );
   }
 
@@ -444,7 +498,7 @@ function manualSteps(
   const claude: string[] = [];
   for (const plan of settings) {
     const s = plan.scope;
-    // After this upgrade (or the rerun it asks for), does this scope enable the plugin?
+    // After this migration (or the rerun it asks for), does this scope enable the plugin?
     const enabled = isObj(plan.data?.enabledPlugins) ? (plan.data.enabledPlugins as Obj) : {};
     const usesFactory = Object.keys(enabled).some((k) => k === NEW_PLUGIN || isOldPlugin(k));
     const oldInstalled = installed.filter((i) => isOldPlugin(i.key) && inScope(i, s));
@@ -491,34 +545,143 @@ function gitDir(repo: string): string {
   return resolvePath(repo, p.stdout.trim());
 }
 
-export function upgrade(opts: UpgradeOptions): Report {
+/** The repo's factory.json path: next to the factory dir. */
+const configFile = (root: string): string => join(dirname(root), 'factory.json');
+
+function readConfigFile(path: string): Obj | null {
+  if (!existsSync(path)) return null;
+  let data: unknown;
+  try {
+    data = JSON.parse(readFileSync(path, 'utf8'));
+  } catch (error) {
+    throw new Refused(`${path} is not valid JSON (${(error as Error).message}); fix it by hand, then run the migration again`);
+  }
+  if (!isObj(data)) throw new Refused(`${path} is not a JSON object; fix it by hand, then run the migration again`);
+  return data;
+}
+
+interface DowngradePlan {
+  config: { file: string; changes: string[]; text: string | null };
+  runtime: RuntimePlan;
+}
+
+/**
+ * Moving to an older version: refuse what cannot go back without losing meaning (every reason at
+ * once), else plan removing the factory.json keys and job.json fields the target does not know.
+ */
+function planDowngrade(root: string, to: string, found: string[]): DowngradePlan {
+  const target = VERSIONS[versionIndex(to)] as (typeof VERSIONS)[number];
+  const known = new Set(VERSIONS.flatMap((v) => v.job_fields));
+  const knownKeys = new Set(VERSIONS.flatMap((v) => v.config_keys));
+  const refusals: string[] = [];
+  const path = configFile(root);
+  const config = readConfigFile(path);
+  const plan: DowngradePlan = { config: { file: path, changes: [], text: null }, runtime: { dir: root, changes: [], originals: [], apply: [] } };
+
+  const remote = config !== null && Object.hasOwn(config, 'remote') && !target.config_keys.includes('remote');
+  const stateCheckout = existsSync(join(root, 'jobs', '.git'));
+  if (remote || stateCheckout) {
+    refusals.push(
+      `${remote ? `${path} sets 'remote'` : `${join(root, 'jobs')} is a checkout of a remote factory's state branch`}: ${to} has no remote factory. ` +
+        'The job state lives on the state branch, whose signed history (remote.allowed_signers) is what merge checks, and the claims on it would be lost. ' +
+        `Stay on this version, or stop using the remote factory first (remove 'remote' from factory.json yourself, knowing merges are then no longer checked against signed state)`,
+    );
+  }
+  if (config !== null) {
+    const drop = Object.keys(config).filter((k) => k !== 'remote' && knownKeys.has(k) && !target.config_keys.includes(k));
+    if (drop.length > 0) {
+      found.push(`factory.json: ${drop.join(', ')} (unknown to ${to})`);
+      const out: Obj = {};
+      for (const [k, v] of Object.entries(config)) if (!drop.includes(k)) out[k] = v;
+      for (const k of drop) plan.config.changes.push(`factory.json: remove "${k}": ${JSON.stringify(config[k])} (${to} refuses the key)`);
+      plan.config.text = `${JSON.stringify(out, null, indentOf(readFileSync(path, 'utf8')))}\n`;
+    }
+  }
+
+  const jobsDir = join(root, 'jobs');
+  if (existsSync(root)) checkPidLock(root);
+  if (existsSync(jobsDir) && !stateCheckout) {
+    for (const id of readdirSync(jobsDir).sort()) {
+      const jobPath = join(jobsDir, id, 'job.json');
+      if (!existsSync(jobPath)) continue;
+      let job: unknown;
+      try {
+        job = JSON.parse(readFileSync(jobPath, 'utf8'));
+      } catch (error) {
+        throw new Refused(`${jobPath} is not valid JSON (${(error as Error).message}); fix it by hand, then run the migration again`);
+      }
+      if (!isObj(job)) throw new Refused(`${jobPath} is not a JSON object; fix it by hand, then run the migration again`);
+      const finished = job.stage === 'done' || job.status === 'merged' || job.status === 'closed';
+      if (Object.hasOwn(job, 'head') && !target.job_fields.includes('head') && !finished) {
+        refusals.push(
+          `jobs/${id}/job.json records the commit proof and review passed ('head'), which merge checks; ${to} would merge whatever the branch holds. ` +
+            'Finish the job first (merge it, or close it), or stay on this version',
+        );
+        continue;
+      }
+      const drop = Object.keys(job).filter((k) => known.has(k) && !target.job_fields.includes(k));
+      if (drop.length === 0) continue;
+      const next: Obj = {};
+      for (const [k, v] of Object.entries(job)) if (!drop.includes(k)) next[k] = v;
+      const rel = join('jobs', id, 'job.json');
+      plan.runtime.changes.push({ file: rel, change: `${rel}: remove ${drop.join(', ')} (${to} does not know ${drop.length === 1 ? 'it' : 'them'})` });
+      plan.runtime.originals.push(rel);
+      plan.runtime.apply.push(() => writeAtomic(jobPath, `${dumps(next)}\n`));
+    }
+  }
+  if (refusals.length > 0) throw new Refused(`cannot move this repo back to ${to}:\n  - ${refusals.join('\n  - ')}`);
+  return plan;
+}
+
+export function migrateRepo(opts: UpgradeOptions): Report {
+  const fromAt = versionIndex(opts.from);
+  const toAt = versionIndex(opts.to);
+  const ids = VERSIONS.map((v) => v.id).join(', ');
+  if (fromAt < 0) throw new UsageProblem(`--from: unknown version '${opts.from}' (known: ${ids})`);
+  if (toAt < 0) throw new UsageProblem(`--to: unknown version '${opts.to}' (known: ${ids})`);
   const repo = checkout(resolvePath(opts.repo ?? process.cwd()));
+  if (toAt < versionIndex(OLDEST_TARGET)) {
+    throw new Refused(`cannot move this repo to ${opts.to}: it ran the Python CLI, which is retired; ${OLDEST_TARGET} is the oldest version migrate moves a repo to`);
+  }
   const root = factoryDir(repo);
+  const direction = toAt < fromAt ? 'downgrade' : 'upgrade';
   const selected: Scope[] = opts.scopes ?? ['project', 'local'];
   const found: string[] = [];
 
-  const settings = SCOPES.map((s) => planSettings(s, repo, selected.includes(s), found));
-  const runtime = planRuntime(root, found);
-  const manual = manualSteps(repo, root, settings, opts, found);
+  let settings: SettingsPlan[] = [];
+  let runtime: RuntimePlan;
+  let manual: string[] = [];
+  let config: DowngradePlan['config'] = { file: configFile(root), changes: [], text: null };
+  if (direction === 'upgrade') {
+    settings = SCOPES.map((s) => planSettings(s, repo, selected.includes(s), found));
+    runtime = planRuntime(root, found);
+    manual = manualSteps(repo, root, settings, opts, found);
+  } else {
+    const down = planDowngrade(root, opts.to, found);
+    runtime = down.runtime;
+    config = down.config;
+  }
   const toWrite = settings.filter((p) => p.selected && p.text !== null);
-  const changes = toWrite.reduce((n, p) => n + p.changes.length, 0) + runtime.changes.length;
+  const changes = toWrite.reduce((n, p) => n + p.changes.length, 0) + runtime.changes.length + config.changes.length;
 
   let backup: string | null = null;
   let settingsBackup: string | null = null;
   if (opts.apply && changes > 0) {
     // Originals first: nothing is changed until every one of them is copied.
     const settingsToBackUp = toWrite.filter((p) => existsSync(p.path));
-    if (settingsToBackUp.length > 0) {
+    if (settingsToBackUp.length > 0 || config.text !== null) {
       // Not under factory/, which `factory dashboard` serves: settings can hold secrets (env,
       // apiKeyHelper). The dir is 0700 and each copy keeps its original's mode.
       const dir = backupDir(gitDir(repo), 'factory-upgrade-backup');
       mkdirSync(dir, { recursive: true, mode: 0o700 });
       chmodSync(dir, 0o700);
-      for (const p of settingsToBackUp) {
-        const copy = join(dir, p.scope, basename(p.path));
+      const copies: [string, string][] = settingsToBackUp.map((p) => [p.path, join(p.scope, basename(p.path))]);
+      if (config.text !== null) copies.push([config.file, join('config', 'factory.json')]);
+      for (const [from, rel] of copies) {
+        const copy = join(dir, rel);
         mkdirSync(dirname(copy), { mode: 0o700 });
-        copyFileSync(p.path, copy);
-        chmodSync(copy, statSync(p.path).mode & 0o7777);
+        copyFileSync(from, copy);
+        chmodSync(copy, statSync(from).mode & 0o7777);
       }
       settingsBackup = dir;
     }
@@ -537,15 +700,20 @@ export function upgrade(opts: UpgradeOptions): Report {
         });
       }
     }
+    if (config.text !== null) writeAtomic(config.file, config.text);
     for (const p of toWrite) writeAtomic(p.path, p.text as string);
   }
 
   return {
     repo,
     factory_dir: root,
+    from: opts.from,
+    to: opts.to,
+    direction,
     mode: opts.apply ? 'apply' : 'dry-run',
     found,
     settings: settings.map((p) => ({ scope: p.scope, file: p.path, selected: p.selected, changes: p.changes })),
+    config: { file: config.file, changes: config.changes },
     runtime: { dir: root, changes: runtime.changes },
     manual,
     backup,
@@ -555,50 +723,26 @@ export function upgrade(opts: UpgradeOptions): Report {
   };
 }
 
-export function formatReport(r: Report): string {
-  const lines: string[] = [];
-  const dry = r.mode === 'dry-run';
-  lines.push(dry ? `factory upgrade: dry run for ${r.repo} - nothing was written` : `factory upgrade: ${r.repo}`);
-  lines.push('', 'found:');
-  for (const f of r.found) lines.push(`  - ${f}`);
-  if (r.found.length === 0) lines.push('  (no older factory plugin or runtime dir)');
-
-  lines.push('', dry ? 'settings (would change):' : 'settings:');
-  let any = false;
-  for (const s of r.settings) {
-    if (!s.selected || s.changes.length === 0) continue;
-    any = true;
-    lines.push(`  ${s.scope} (${s.file}):`);
-    for (const c of s.changes) lines.push(`    - ${c}`);
+/** `factory migrate-repo`: one JSON value, the report (or, with --versions, the version table). */
+export function cmdMigrateRepo(args: Record<string, unknown>, io: Io): void {
+  if (args.versions === true) {
+    io.stdout(`${dumps(VERSIONS)}\n`);
+    return;
   }
-  if (!any) lines.push('  (no changes)');
-
-  lines.push('', `${dry ? 'runtime dir (would change)' : 'runtime dir'} (${r.runtime.dir}):`);
-  for (const c of r.runtime.changes) lines.push(`  - ${c}`);
-  if (r.runtime.changes.length === 0) lines.push(existsSync(r.runtime.dir) ? '  (no changes)' : '  (none: no factory dir)');
-
-  lines.push('', 'manual steps (this command does not do these):');
-  for (const m of r.manual) lines.push(`  - ${m}`);
-  if (r.manual.length === 0) lines.push('  (none)');
-  lines.push('');
-
-  if (r.backup) lines.push(`backup of the originals: ${r.backup}`);
-  if (r.settings_backup) lines.push(`backup of the settings files: ${r.settings_backup}`);
-  if (r.nothing_to_do) {
-    lines.push(`nothing to do: the settings and runtime dir are current${r.manual.length > 0 ? ` (${r.manual.length} manual step(s) listed above)` : ''}`);
-  } else if (dry) {
-    lines.push(`${r.changes} change(s) to make; run again with --apply to make them`);
-  } else {
-    lines.push(`${r.changes} change(s) made`);
-  }
-  return `${lines.join('\n')}\n`;
-}
-
-export function cmdUpgrade(args: Record<string, unknown>, io: Io): void {
-  const report = upgrade({
+  if (typeof args.from !== 'string' || typeof args.to !== 'string') throw new UsageProblem('the following arguments are required: --from, --to');
+  const report = migrateRepo({
     repo: (args.repo as string | null) ?? null,
     apply: args.apply === true,
     scopes: (args.scope as Scope[] | null) ?? null,
+    from: args.from,
+    to: args.to,
   });
-  io.stdout(args.json === true ? `${dumps(report)}\n` : formatReport(report));
+  io.stdout(`${dumps(report)}\n`);
 }
+
+/** What `factory upgrade` (and /factory:upgrade) says now: the command moved to factory-doctor. */
+export const UPGRADE_MOVED =
+  'factory upgrade moved to factory-doctor migrate, which moves a repo between software-factory versions (up or down) and can update the plugins too.\n' +
+  'Run its dry run from the repository: npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory-doctor migrate\n' +
+  '(with CLAUDE_PLUGIN_ROOT the factory-doctor plugin\'s folder; in Claude Code, ask to migrate the repo and the factory-doctor skill runs it).\n' +
+  'Without factory-doctor installed: claude plugin install factory-doctor@software-factory\n';

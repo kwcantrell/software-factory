@@ -1,4 +1,7 @@
-// `factory upgrade`, driven as a subprocess. fixtures/upgrade-<commit>/ are factory dirs written by the
+// `factory migrate-repo` (the plumbing `factory-doctor migrate` runs; `factory upgrade` moved there),
+// driven as a subprocess. Every behaviour the old `factory upgrade` tests covered is kept here,
+// asserted on the plumbing's JSON report; factory-doctor's test/migrate.test.ts covers the same flows
+// through `factory-doctor migrate`, and the downgrades. fixtures/upgrade-<commit>/ are factory dirs written by the
 // original Python CLI at that commit (979c870: no follow-ups; d7923b8: follow-ups and specs_dir), with
 // jobs at intake, build (with a worktree), ship (with a worktree) and done; expected/ holds that CLI's
 // `status` and `stats` output. fixtures/upgrade-README.md says how they were made. Every test runs in
@@ -85,14 +88,20 @@ function snapshot(dir: string): Map<string, string> {
   return out;
 }
 
-function upgrade(r: Repo, args: string[], status = 0, opts: { cwd?: string } = {}): string {
-  const p = r.factory(['upgrade', ...args], opts);
+/** The version the fixtures and settings tests move from, and the one they move to. */
+const FROM = 'kwcantrell';
+const TO = 'unreleased';
+
+/** `factory migrate-repo --from FROM --to TO <args>`: stdout (JSON) on success, stderr on a refusal. */
+function migrate(r: Repo, args: string[], status = 0, opts: { cwd?: string; from?: string; to?: string } = {}): string {
+  const p = r.factory(['migrate-repo', '--from', opts.from ?? FROM, '--to', opts.to ?? TO, ...args], opts);
   assert.equal(p.status, status, p.stdout + p.stderr);
   if (status !== 0) assert.equal(p.stdout, '', 'a refusal prints nothing on stdout');
   return status === 0 ? p.stdout : p.stderr;
 }
 
-const json = (r: Repo, args: string[]): Record<string, any> => JSON.parse(upgrade(r, [...args, '--json']));
+const json = (r: Repo, args: string[], opts: { from?: string; to?: string } = {}): Record<string, any> => JSON.parse(migrate(r, args, 0, opts));
+const changesOf = (rep: Record<string, any>): string[] => rep.runtime.changes.map((c: { change: string }) => c.change);
 const expected = (commit: string, name: string): string =>
   readFileSync(join(FIXTURES, `upgrade-${commit}`, 'expected', name), 'utf8');
 
@@ -103,32 +112,54 @@ function writeJson(path: string, value: unknown): void {
 
 // ---------------------------------------------------------------- command
 
-test('--help lists upgrade, and upgrade --help its options', withRepo((r) => {
-  assert.match(r.ok(['--help']), /^ {2}upgrade +move this repo/m);
-  const help = r.ok(['upgrade', '--help']);
-  assert.match(help, /^usage: factory upgrade \[-h\] \[--repo REPO\] \[--apply\] \[--scope \{project,local,user\}\] \[--json\]/);
+test('factory upgrade moved: it names factory-doctor migrate and exits 2, whatever its arguments', withRepo((r) => {
+  assert.match(r.ok(['--help']), /^ {2}upgrade +moved: run factory-doctor migrate/m);
+  assert.match(r.ok(['--help']), /^ {2}migrate-repo +plumbing for factory-doctor migrate/m);
+  for (const args of [[], ['--apply'], ['--apply', '--scope', 'user', '--json']]) {
+    const p = r.factory(['upgrade', ...args]);
+    assert.equal(p.status, 2);
+    assert.equal(p.stdout, '');
+    assert.match(p.stderr, /^factory upgrade moved to factory-doctor migrate/);
+    assert.ok(p.stderr.includes('-- factory-doctor migrate\n'), p.stderr);
+    assert.match(p.stderr, /claude plugin install factory-doctor@software-factory/);
+  }
+  assert.equal(existsSync(r.fdir), false, 'factory upgrade wrote a factory dir');
 }));
 
-test('a usage error or a path that is not a git checkout exits 2', withRepo((r) => {
+test('migrate-repo --help lists its options; --versions prints the version table', withRepo((r) => {
+  const help = r.ok(['migrate-repo', '--help']);
+  assert.match(help, /^usage: factory migrate-repo \[-h\] \[--from FROM\] \[--to TO\] \[--repo REPO\] \[--apply\] \[--scope \{project,local,user\}\] \[--versions\]/);
+  const versions = JSON.parse(r.ok(['migrate-repo', '--versions']));
+  assert.deepEqual(versions.map((v: { id: string }) => v.id), ['kwcantrell', '0.2.0', '0.3.0', '0.3.1', '0.4.0', 'unreleased']);
+  const current = versions.at(-1);
+  assert.deepEqual([...current.config_keys].sort(), Object.keys(JSON.parse(r.ok(['config']))).sort(), 'unreleased = what this CLI accepts');
+}));
+
+test('a usage error, an unknown version or a path that is not a git checkout exits 2', withRepo((r) => {
   claudeDir(r);
-  let err = upgrade(r, ['--scope', 'everywhere'], 2);
+  let err = migrate(r, ['--scope', 'everywhere'], 2);
   assert.match(err, /invalid choice: 'everywhere'/);
+  assert.match(r.factory(['migrate-repo', '--to', TO]).stderr, /required: --from, --to/);
+  assert.match(migrate(r, [], 2, { to: '9.9.9' }), /--to: unknown version '9\.9\.9' \(known: kwcantrell, 0\.2\.0/);
+  assert.match(migrate(r, [], 2, { from: 'nope' }), /--from: unknown version 'nope'/);
   const outside = join(r.tmp, 'not-a-repo');
   mkdirSync(outside);
-  err = upgrade(r, ['--repo', outside], 2);
+  err = migrate(r, ['--repo', outside], 2);
   assert.match(err, /not-a-repo is not inside a git checkout/);
-  err = upgrade(r, [], 2, { cwd: outside });
+  err = migrate(r, [], 2, { cwd: outside });
   assert.match(err, /is not inside a git checkout/);
-  upgrade(r, ['--repo', join(r.tmp, 'missing')], 2);
+  migrate(r, ['--repo', join(r.tmp, 'missing')], 2);
 }));
 
 test('a repo that never used the factory has nothing to do, and the dry run creates no factory dir', withRepo((r) => {
   claudeDir(r);
-  const out = upgrade(r, []);
-  assert.match(out, /^factory upgrade: dry run for .* - nothing was written\n/);
-  assert.match(out, /nothing to do: the settings and runtime dir are current\n$/);
+  const rep = json(r, []);
+  assert.equal(rep.mode, 'dry-run');
+  assert.equal(rep.direction, 'upgrade');
+  assert.equal(rep.nothing_to_do, true);
+  assert.deepEqual(rep.manual, []);
   assert.equal(existsSync(r.fdir), false);
-  upgrade(r, ['--apply']);
+  json(r, ['--apply']);
   assert.equal(existsSync(r.fdir), false);
 }));
 
@@ -138,26 +169,29 @@ for (const commit of COMMITS) {
   test(`dry run on a factory dir from ${commit} lists the changes and writes nothing`, withRepo((r) => {
     fromFixture(r, commit);
     const before = snapshot(r.tmp);
-    const out = upgrade(r, []);
+    const rep = json(r, []);
     assert.deepEqual(snapshot(r.tmp), before, 'the dry run changed a file');
-    assert.match(out, /\nfound:\n.*\.lock, the lock file of the Python CLI/s);
+    assert.ok(rep.found.some((f: string) => /\.lock, the lock file of the Python CLI/.test(f)), rep.found.join('\n'));
     const label = commit === '979c870' ? 'before follow-ups' : 'with follow-ups';
-    assert.match(out, new RegExp(`dashboard \\(index\\.html\\) from the (original )?Python CLI.*${label}`));
-    assert.match(out, /\nsettings \(would change\):\n {2}\(no changes\)\n/);
-    assert.match(out, /\nruntime dir \(would change\) \(.*\/factory\):\n/);
-    assert.match(out, /- remove \.lock /);
-    assert.match(out, /- replace index\.html with the current dashboard/);
-    assert.match(out, /- create \.gitignore/);
-    assert.match(out, /\nmanual steps \(this command does not do these\):\n/);
+    assert.ok(rep.found.some((f: string) => new RegExp(`dashboard \\(index\\.html\\) from the (original )?Python CLI.*${label}`).test(f)));
+    assert.deepEqual(rep.settings.flatMap((s: { changes: string[] }) => s.changes), []);
+    assert.equal(rep.runtime.dir, r.fdir);
+    const changes = changesOf(rep);
+    assert.ok(changes.some((c) => c.startsWith('remove .lock ')));
+    assert.ok(changes.includes('replace index.html with the current dashboard'));
+    assert.ok(changes.some((c) => c.startsWith('create .gitignore')));
+    assert.deepEqual(rep.runtime.changes.find((c: { change: string }) => c.change.startsWith('remove .lock')).file, '.lock');
     if (commit === '979c870') {
       for (const id of ['001-intake-job', '002-build-job', '003-ship-job', '004-done-job']) {
-        assert.match(out, new RegExp(`- jobs/${id}/job\\.json: add followups \\(\\[\\]\\)\\n`));
+        assert.ok(changes.includes(`jobs/${id}/job.json: add followups ([])`), changes.join('\n'));
+        assert.ok(rep.runtime.changes.some((c: { file: string }) => c.file === `jobs/${id}/job.json`));
       }
-      assert.match(out, /4 job\(s\) written by an older CLI \(missing followups\)/);
+      assert.ok(rep.found.includes('runtime dir: 4 job(s) written by an older CLI (missing followups)'));
     } else {
-      assert.doesNotMatch(out, /job\.json: add/);
+      assert.equal(changes.some((c) => c.includes('job.json: add')), false);
     }
-    assert.match(out, /\d+ change\(s\) to make; run again with --apply to make them\n$/);
+    assert.equal(rep.changes, changes.length);
+    assert.equal(rep.nothing_to_do, false);
   }));
 
   test(`--apply migrates a factory dir from ${commit}; status, followup list and stats work after`, withRepo((r) => {
@@ -166,11 +200,10 @@ for (const commit of COMMITS) {
       readdirSync(join(r.fdir, 'jobs')).map((id) => [id, readFileSync(join(r.jobDir(id), 'job.json'), 'utf8')]),
     );
     const indexBefore = readFileSync(join(r.fdir, 'index.html'));
-    const out = upgrade(r, ['--apply']);
-    assert.match(out, /^factory upgrade: \//);
-    const backup = /^backup of the originals: (.*)$/m.exec(out)?.[1] as string;
-    assert.ok(backup && backup.startsWith(join(r.fdir, 'upgrade-backup-')), out);
-    assert.match(out, /\d+ change\(s\) made\n$/);
+    const rep = json(r, ['--apply']);
+    assert.equal(rep.mode, 'apply');
+    const backup = rep.backup as string;
+    assert.ok(backup && backup.startsWith(join(r.fdir, 'upgrade-backup-')), backup);
 
     // The dashboard, .gitignore and lock file.
     assert.deepEqual(readFileSync(join(r.fdir, 'index.html')), DASHBOARD);
@@ -216,13 +249,13 @@ for (const commit of COMMITS) {
 
   test(`a second --apply on a dir from ${commit} has nothing to do and changes no file`, withRepo((r) => {
     fromFixture(r, commit);
-    upgrade(r, ['--apply']);
+    json(r, ['--apply']);
     const before = snapshot(r.tmp);
-    const out = upgrade(r, ['--apply']);
-    assert.match(out, /nothing to do: the settings and runtime dir are current/);
-    assert.doesNotMatch(out, /backup of the originals/);
+    const rep = json(r, ['--apply']);
+    assert.equal(rep.nothing_to_do, true);
+    assert.equal(rep.backup, null);
     assert.deepEqual(snapshot(r.tmp), before);
-    assert.match(upgrade(r, []), /nothing to do/);
+    assert.equal(json(r, []).nothing_to_do, true);
   }));
 }
 
@@ -230,17 +263,17 @@ test('a current factory dir that only lacks .gitignore gets one, with nothing to
   claudeDir(r);
   r.newJob();
   rmSync(join(r.fdir, '.gitignore'));
-  const out = upgrade(r, ['--apply']);
-  assert.match(out, /- create \.gitignore/);
-  assert.doesNotMatch(out, /backup of the originals/);
+  const rep = json(r, ['--apply'], { from: TO });
+  assert.ok(changesOf(rep).some((c) => c.startsWith('create .gitignore')));
+  assert.equal(rep.backup, null);
   assert.equal(readdirSync(r.fdir).some((n) => n.startsWith('upgrade-backup-')), false);
   assert.ok(existsSync(join(r.fdir, '.gitignore')));
-  assert.match(upgrade(r, []), /nothing to do/);
+  assert.equal(json(r, [], { from: TO }).nothing_to_do, true);
 }));
 
 test('the d7923b8 fixture keeps factory.json with specs_dir, which the current CLI accepts', withRepo((r) => {
   fromFixture(r, 'd7923b8');
-  upgrade(r, ['--apply']);
+  json(r, ['--apply'], { from: '0.2.0' });
   assert.match(r.ok(['config']), /"specs_dir": "docs\/specs"/);
 }));
 
@@ -248,7 +281,7 @@ test('a job.json that does not parse is refused and nothing is changed', withRep
   fromFixture(r, '979c870');
   writeFileSync(join(r.jobDir('001-intake-job'), 'job.json'), '{ not json');
   const before = snapshot(r.tmp);
-  assert.match(upgrade(r, ['--apply'], 1), /^refused: .*001-intake-job\/job\.json is not valid JSON/);
+  assert.match(migrate(r, ['--apply'], 1), /^refused: .*001-intake-job\/job\.json is not valid JSON/);
   assert.deepEqual(snapshot(r.tmp), before);
 }));
 
@@ -256,11 +289,12 @@ test('refuses while a live process holds the factory lock', withRepo((r) => {
   fromFixture(r, 'd7923b8');
   writeFileSync(join(r.fdir, '.lock.pid'), `${process.pid}\n`);
   const before = snapshot(r.tmp);
-  assert.match(upgrade(r, ['--apply'], 1), new RegExp(`^refused: the factory lock .* is held by process ${process.pid}`));
+  assert.match(migrate(r, ['--apply'], 1), new RegExp(`^refused: the factory lock .* is held by process ${process.pid}`));
+  assert.match(migrate(r, ['--apply'], 1, { from: TO, to: '0.4.0' }), new RegExp(`is held by process ${process.pid}`), 'a downgrade waits too');
   assert.deepEqual(snapshot(r.tmp), before);
   // A lock left by a process that is gone is not a reason to stop.
   writeFileSync(join(r.fdir, '.lock.pid'), '999999999\n');
-  upgrade(r, ['--apply']);
+  json(r, ['--apply']);
 }));
 
 const canFlock = spawnSync('flock', ['--version']).status === 0 && existsSync('/proc/locks');
@@ -271,13 +305,13 @@ test('refuses while the old CLI holds its flock on .lock', { skip: !canFlock && 
   try {
     await new Promise<void>((resolve) => holder.stdout.once('data', () => resolve()));
     const before = snapshot(r.tmp);
-    assert.match(upgrade(r, ['--apply'], 1), /^refused: .*\.lock is locked by a running factory command/);
+    assert.match(migrate(r, ['--apply'], 1), /^refused: .*\.lock is locked by a running factory command/);
     assert.deepEqual(snapshot(r.tmp), before);
   } finally {
     process.kill(-(holder.pid as number), 'SIGTERM'); // flock and the sleep holding its lock
   }
   await new Promise((resolve) => holder.once('close', resolve));
-  upgrade(r, ['--apply']);
+  json(r, ['--apply']);
 }));
 
 // ---------------------------------------------------------------- settings
@@ -296,12 +330,20 @@ test('project scope: the old key becomes factory@software-factory in place; othe
   const path = join(r.repo, '.claude', 'settings.json');
   writeJson(path, PROJECT());
   const before = readFileSync(path, 'utf8');
-  const dry = upgrade(r, []);
+  const dry = json(r, []);
   assert.equal(readFileSync(path, 'utf8'), before, 'the dry run wrote the settings');
-  assert.match(dry, new RegExp(`project settings \\(${path}\\): ${OLD_KEY} enabled - the original plugin, from kwcantrell/kwcantrell-plugins`));
-  assert.match(dry, /settings \(would change\):\n {2}project \(.*\):\n {4}- enabledPlugins: "factory@kwcantrell-plugins": true -> "factory@software-factory": true\n {4}- extraKnownMarketplaces: add "software-factory" \(github kwcantrell\/software-factory\)\n/);
+  assert.ok(dry.found.includes(`project settings (${path}): ${OLD_KEY} enabled - the original plugin, from kwcantrell/kwcantrell-plugins`), dry.found.join('\n'));
+  assert.deepEqual(dry.settings.find((s: { scope: string }) => s.scope === 'project'), {
+    scope: 'project',
+    file: path,
+    selected: true,
+    changes: [
+      'enabledPlugins: "factory@kwcantrell-plugins": true -> "factory@software-factory": true',
+      'extraKnownMarketplaces: add "software-factory" (github kwcantrell/software-factory)',
+    ],
+  });
 
-  upgrade(r, ['--apply']);
+  json(r, ['--apply']);
   const text = readFileSync(path, 'utf8');
   assert.equal(
     text,
@@ -319,8 +361,7 @@ test('project scope: the old key becomes factory@software-factory in place; othe
       2,
     )}\n`,
   );
-  const again = upgrade(r, ['--apply']);
-  assert.match(again, /nothing to do/);
+  assert.equal(json(r, ['--apply']).nothing_to_do, true);
   assert.equal(readFileSync(path, 'utf8'), text);
 }));
 
@@ -329,9 +370,9 @@ test('local scope: a false value stays false, another marketplace counts as old,
   const path = join(r.repo, '.claude', 'settings.local.json');
   mkdirSync(join(r.repo, '.claude'));
   writeFileSync(path, `${JSON.stringify({ enabledPlugins: { 'factory@my-fork': false, 'x@y': true } }, null, '\t')}\n`);
-  const dry = upgrade(r, []);
-  assert.match(dry, /local settings .*: factory@my-fork disabled - marketplace 'my-fork', not software-factory/);
-  upgrade(r, ['--apply']);
+  const dry = json(r, []);
+  assert.ok(dry.found.some((f: string) => /local settings .*: factory@my-fork disabled - marketplace 'my-fork', not software-factory/.test(f)));
+  json(r, ['--apply']);
   assert.equal(readFileSync(path, 'utf8'), `{\n\t"enabledPlugins": {\n\t\t"factory@software-factory": false,\n\t\t"x@y": true\n\t}\n}\n`);
 }));
 
@@ -339,7 +380,7 @@ test('a scope that already enables factory@software-factory drops the old key an
   claudeDir(r);
   const path = join(r.repo, '.claude', 'settings.json');
   writeJson(path, { enabledPlugins: { [OLD_KEY]: true, [NEW_KEY]: false } });
-  upgrade(r, ['--apply']);
+  json(r, ['--apply']);
   assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), { enabledPlugins: { [NEW_KEY]: false } });
 }));
 
@@ -348,17 +389,17 @@ test('user scope changes only with --scope user; otherwise it is a manual step n
   const path = join(dir, 'settings.json');
   writeJson(path, PROJECT());
   const before = readFileSync(path, 'utf8');
-  const out = upgrade(r, ['--apply']);
+  const rep = json(r, ['--apply']);
   assert.equal(readFileSync(path, 'utf8'), before, 'user settings changed without --scope user');
-  assert.match(out, /- user settings \(.*\) still enable the old plugin; to switch them run `factory upgrade --apply --scope user`, which will: enabledPlugins: "factory@kwcantrell-plugins": true -> "factory@software-factory": true; extraKnownMarketplaces: add "software-factory"/);
-  assert.match(out, /nothing to do/);
+  assert.ok(rep.manual.some((m: string) => /^user settings \(.*\) still enable the old plugin; to switch them run `factory-doctor migrate --apply --scope user`, which will: enabledPlugins: "factory@kwcantrell-plugins": true -> "factory@software-factory": true; extraKnownMarketplaces: add "software-factory"/.test(m)), rep.manual.join('\n'));
+  assert.equal(rep.nothing_to_do, true);
 
-  const applied = upgrade(r, ['--apply', '--scope', 'user']);
-  assert.match(applied, /settings:\n {2}user \(/);
+  const applied = json(r, ['--apply', '--scope', 'user']);
+  assert.deepEqual(applied.settings.filter((s: { selected: boolean; changes: string[] }) => s.selected && s.changes.length > 0).map((s: { scope: string }) => s.scope), ['user']);
   const now = JSON.parse(readFileSync(path, 'utf8'));
   assert.deepEqual(now.enabledPlugins, { 'base-setup@kwcantrell-plugins': true, [NEW_KEY]: true, 'other@elsewhere': false });
   assert.ok(now.extraKnownMarketplaces['software-factory']);
-  assert.doesNotMatch(upgrade(r, []), /upgrade --apply --scope user/);
+  assert.equal(json(r, []).manual.some((m: string) => m.includes('migrate --apply --scope user')), false);
 }));
 
 test('--scope picks the scopes to change; the others become manual steps', withRepo((r) => {
@@ -367,11 +408,11 @@ test('--scope picks the scopes to change; the others become manual steps', withR
   const local = join(r.repo, '.claude', 'settings.local.json');
   writeJson(project, { enabledPlugins: { [OLD_KEY]: true } });
   writeJson(local, { enabledPlugins: { [OLD_KEY]: true } });
-  const out = upgrade(r, ['--apply', '--scope', 'local']);
+  const rep = json(r, ['--apply', '--scope', 'local']);
   assert.deepEqual(JSON.parse(readFileSync(local, 'utf8')).enabledPlugins, { [NEW_KEY]: true });
   assert.deepEqual(JSON.parse(readFileSync(project, 'utf8')).enabledPlugins, { [OLD_KEY]: true });
-  assert.match(out, /run `factory upgrade --apply --scope project`/);
-  upgrade(r, ['--apply', '--scope', 'project', '--scope', 'local']);
+  assert.ok(rep.manual.some((m: string) => m.includes('run `factory-doctor migrate --apply --scope project`')));
+  json(r, ['--apply', '--scope', 'project', '--scope', 'local']);
   assert.deepEqual(JSON.parse(readFileSync(project, 'utf8')).enabledPlugins, { [NEW_KEY]: true });
 }));
 
@@ -383,7 +424,7 @@ for (const scope of ['project', 'local', 'user'] as const) {
     writeFileSync(path, `{"enabledPlugins": {"${OLD_KEY}": true},}\n`);
     const before = snapshot(r.tmp);
     for (const args of [[], ['--apply'], ['--apply', '--scope', scope]]) {
-      assert.match(upgrade(r, args, 1), new RegExp(`^refused: ${path} is not valid JSON`));
+      assert.match(migrate(r, args, 1), new RegExp(`^refused: ${path} is not valid JSON`));
     }
     assert.deepEqual(snapshot(r.tmp), before);
   }));
@@ -394,12 +435,12 @@ test('settings are backed up in a private dir under the git dir, never under fac
   const path = join(r.repo, '.claude', 'settings.json');
   writeJson(path, { enabledPlugins: { [OLD_KEY]: true } });
   const before = readFileSync(path, 'utf8');
-  const out = upgrade(r, ['--apply']);
-  const runtime = /^backup of the originals: (.*)$/m.exec(out)?.[1] as string;
-  const backup = /^backup of the settings files: (.*)$/m.exec(out)?.[1] as string;
-  assert.ok(runtime.startsWith(join(r.fdir, 'upgrade-backup-')), out);
+  const rep = json(r, ['--apply']);
+  const runtime = rep.backup as string;
+  const backup = rep.settings_backup as string;
+  assert.ok(runtime.startsWith(join(r.fdir, 'upgrade-backup-')), runtime);
   assert.equal(existsSync(join(runtime, 'settings')), false, 'settings copied into the dir the dashboard serves');
-  assert.ok(backup.startsWith(join(r.repo, '.git', 'factory-upgrade-backup-')), out);
+  assert.ok(backup.startsWith(join(r.repo, '.git', 'factory-upgrade-backup-')), backup);
   assert.equal(readFileSync(join(backup, 'project', 'settings.json'), 'utf8'), before);
   assert.equal(statSync(backup).mode & 0o777, 0o700);
   assert.equal(r.git(['status', '--porcelain', '--', '.claude']), '?? .claude/', 'only the settings dir itself is new');
@@ -434,7 +475,7 @@ test('a symlinked settings file keeps its link; a file at the old temp name is n
   const decoy = join(r.tmp, 'decoy.txt');
   writeFileSync(decoy, 'untouched\n');
   symlinkSync(decoy, `${link}.upgrade.tmp`);
-  upgrade(r, ['--apply', '--scope', 'user']);
+  json(r, ['--apply', '--scope', 'user']);
   assert.ok(lstatSync(link).isSymbolicLink(), 'the symlink was replaced by a file');
   assert.deepEqual(JSON.parse(readFileSync(real, 'utf8')).enabledPlugins, { [NEW_KEY]: true });
   assert.equal(readFileSync(decoy, 'utf8'), 'untouched\n');
@@ -447,8 +488,8 @@ test('a --repo path in a suggested command is single-quoted for the shell', with
   writeJson(join(repo, '.claude', 'settings.json'), { enabledPlugins: { [OLD_KEY]: true } });
   claudeDir(r);
   r.env = { ...r.env, FACTORY_DIR: join(repo, 'factory') };
-  const out = upgrade(r, ['--repo', repo, '--scope', 'local']);
-  assert.ok(out.includes(`--scope project --repo '${r.tmp}/it'\\''s $(x)'\``), out);
+  const rep = json(r, ['--repo', repo, '--scope', 'local']);
+  assert.ok(rep.manual.some((m: string) => m.includes(`--scope project --repo '${r.tmp}/it'\\''s $(x)'\``)), rep.manual.join('\n'));
 }));
 
 // ---------------------------------------------------------------- manual steps
@@ -457,9 +498,9 @@ test('factory.json keys the current CLI refuses are reported by name, not fixed'
   fromFixture(r, 'd7923b8');
   const cfg = join(r.repo, 'factory.json');
   writeFileSync(cfg, '{"specs_dir": "docs/specs", "old_option": 1, "max_review_rounds": 0}\n');
-  const out = upgrade(r, ['--apply']);
-  assert.match(out, /- .*factory\.json: unknown key 'old_option' \(known: reviewers, .*\) - the current CLI refuses this factory\.json/);
-  assert.match(out, /- .*factory\.json: 'max_review_rounds' must be a whole number of at least 1 - /);
+  const rep = json(r, ['--apply']);
+  assert.ok(rep.manual.some((m: string) => /factory\.json: unknown key 'old_option' \(known: reviewers, .*\) - the current CLI refuses this factory\.json/.test(m)), rep.manual.join('\n'));
+  assert.ok(rep.manual.some((m: string) => /factory\.json: 'max_review_rounds' must be a whole number of at least 1 - /.test(m)));
   assert.equal(readFileSync(cfg, 'utf8'), '{"specs_dir": "docs/specs", "old_option": 1, "max_review_rounds": 0}\n');
 }));
 
@@ -471,12 +512,12 @@ test('tracked files that still name the old plugin or CLI are listed with file:l
   writeJson(join(r.repo, '.claude', 'settings.json'), { enabledPlugins: { [OLD_KEY]: true } });
   r.git(['add', 'NOTES.md', '.claude/settings.json']);
   r.git(['commit', '-q', '-m', 'notes']);
-  const out = upgrade(r, []);
-  assert.match(out, new RegExp(`- NOTES\\.md:2: run python3 -I ${cli} status\\n {4}names the old plugin or CLI`));
-  assert.match(out, new RegExp(`- NOTES\\.md:4: install ${OLD_KEY}\\n`));
-  assert.doesNotMatch(out, /NOTES\.md:3/, 'kwcantrell-plugins without factory is not the old plugin');
-  assert.doesNotMatch(out, /untracked\.md/);
-  assert.doesNotMatch(out, /- \.claude\/settings\.json:/, 'settings are switched, not listed as a manual edit');
+  const manual = json(r, []).manual.join('\n---\n');
+  assert.match(manual, new RegExp(`NOTES\\.md:2: run python3 -I ${cli} status\\n {4}names the old plugin or CLI`));
+  assert.match(manual, new RegExp(`NOTES\\.md:4: install ${OLD_KEY}\\n`));
+  assert.doesNotMatch(manual, /NOTES\.md:3/, 'kwcantrell-plugins without factory is not the old plugin');
+  assert.doesNotMatch(manual, /untracked\.md/);
+  assert.doesNotMatch(manual, /\.claude\/settings\.json:/, 'settings are switched, not listed as a manual edit');
 }));
 
 test('the claude plugin commands are listed per scope until the registry shows them done', withRepo((r) => {
@@ -486,38 +527,40 @@ test('the claude plugin commands are listed per scope until the registry shows t
   const entry = (scope: string) => ({ scope, projectPath: r.repo, version: '0.1.0', installPath: '/x' });
   writeJson(registry, { version: 2, plugins: { [OLD_KEY]: [entry('project')] } });
 
-  let out = upgrade(r, ['--apply']);
-  assert.match(out, /installed: factory@kwcantrell-plugins 0\.1\.0 \(project scope\)/);
-  assert.match(out, /- run in a terminal: claude plugin install factory@software-factory --scope project\n/);
-  assert.match(out, /- run in a terminal: claude plugin uninstall factory@kwcantrell-plugins --scope project\n/);
-  assert.match(out, /- then run \/reload-plugins in Claude Code/);
-  assert.doesNotMatch(out, /marketplace add/, 'the project settings now declare software-factory');
-  assert.ok(out.indexOf('plugin install') < out.indexOf('plugin uninstall'));
+  let rep = json(r, ['--apply']);
+  assert.ok(rep.found.includes('installed: factory@kwcantrell-plugins 0.1.0 (project scope)'));
+  const manual = rep.manual as string[];
+  assert.ok(manual.includes('run in a terminal: claude plugin install factory@software-factory --scope project'), manual.join('\n'));
+  assert.ok(manual.includes('run in a terminal: claude plugin uninstall factory@kwcantrell-plugins --scope project'));
+  assert.ok(manual.some((m) => m.startsWith('then run /reload-plugins in Claude Code')));
+  assert.equal(manual.some((m) => m.includes('marketplace add')), false, 'the project settings now declare software-factory');
+  assert.ok(manual.findIndex((m) => m.includes('plugin install')) < manual.findIndex((m) => m.includes('plugin uninstall')));
 
   // The user ran them: nothing is left.
   writeJson(registry, { version: 2, plugins: { [NEW_KEY]: [entry('project')] } });
-  out = upgrade(r, []);
-  assert.doesNotMatch(out, /claude plugin|reload-plugins/);
-  assert.match(out, /manual steps \(this command does not do these\):\n {2}\(none\)\n/);
-  assert.match(out, /nothing to do: the settings and runtime dir are current\n$/);
+  rep = json(r, []);
+  assert.deepEqual(rep.manual, []);
+  assert.equal(rep.nothing_to_do, true);
 }));
 
 test('the marketplace is added first when no scope or registry knows software-factory', withRepo((r) => {
   claudeDir(r);
   writeJson(join(r.repo, '.claude', 'settings.json'), { enabledPlugins: { [OLD_KEY]: true } });
-  const out = upgrade(r, []);
-  const add = out.indexOf('claude plugin marketplace add kwcantrell/software-factory');
-  assert.ok(add > 0 && add < out.indexOf('claude plugin install factory@software-factory --scope project'), out);
+  const manual = json(r, []).manual as string[];
+  const add = manual.indexOf('run in a terminal: claude plugin marketplace add kwcantrell/software-factory');
+  assert.ok(add >= 0 && add < manual.indexOf('run in a terminal: claude plugin install factory@software-factory --scope project'), manual.join('\n'));
 }));
 
-test('--repo works from an unrelated directory, and --json prints one JSON value', withRepo((r) => {
+test('--repo works from an unrelated directory, and the report is one JSON value', withRepo((r) => {
   fromFixture(r, '979c870');
   const elsewhere = join(r.tmp, 'elsewhere');
   mkdirSync(elsewhere);
-  const p = r.factory(['upgrade', '--repo', r.repo, '--json'], { cwd: elsewhere });
+  const p = r.factory(['migrate-repo', '--from', FROM, '--to', TO, '--repo', r.repo], { cwd: elsewhere });
   assert.equal(p.status, 0, p.stderr);
   const report = JSON.parse(p.stdout);
   assert.equal(report.repo, r.repo);
+  assert.equal(report.from, FROM);
+  assert.equal(report.to, TO);
   assert.equal(report.mode, 'dry-run');
   assert.equal(report.nothing_to_do, false);
   assert.ok(report.runtime.changes.length >= 7);
@@ -526,6 +569,80 @@ test('--repo works from an unrelated directory, and --json prints one JSON value
   assert.match(applied.backup, /upgrade-backup-/);
   assert.equal(json(r, []).nothing_to_do, true);
   rmSync(elsewhere, { recursive: true });
+}));
+
+// ---------------------------------------------------------------- downgrades
+
+/** A factory dir written by this CLI: two jobs (one with a follow-up), and factory.json with advisor. */
+function currentFactory(r: Repo, config: Record<string, unknown> = { max_review_rounds: 2, advisor: { share: false } }): void {
+  claudeDir(r);
+  writeJson(join(r.repo, 'factory.json'), config);
+  r.newJob('First');
+  r.newJob('Second');
+  r.ok(['followup', 'add', '1', '--by', 'builder', 'later']);
+}
+
+test('downgrade to 0.4.0: factory.json loses the keys 0.4.0 refuses, backed up privately; jobs stay', withRepo((r) => {
+  currentFactory(r);
+  const jobs = readFileSync(join(r.jobDir('001-first'), 'job.json'), 'utf8');
+  const before = snapshot(r.tmp);
+  const dry = json(r, [], { from: TO, to: '0.4.0' });
+  assert.deepEqual(snapshot(r.tmp), before, 'the dry run wrote something');
+  assert.equal(dry.direction, 'downgrade');
+  assert.deepEqual(dry.config.changes, ['factory.json: remove "advisor": {"share":false} (0.4.0 refuses the key)']);
+  assert.deepEqual(dry.runtime.changes, []);
+  assert.deepEqual(dry.settings, []);
+  const rep = json(r, ['--apply'], { from: TO, to: '0.4.0' });
+  assert.deepEqual(JSON.parse(readFileSync(join(r.repo, 'factory.json'), 'utf8')), { max_review_rounds: 2 });
+  assert.ok(rep.settings_backup.startsWith(join(r.repo, '.git', 'factory-upgrade-backup-')));
+  assert.deepEqual(JSON.parse(readFileSync(join(rep.settings_backup, 'config', 'factory.json'), 'utf8')), { max_review_rounds: 2, advisor: { share: false } });
+  assert.equal(readFileSync(join(r.jobDir('001-first'), 'job.json'), 'utf8'), jobs);
+  assert.equal(json(r, [], { from: TO, to: '0.4.0' }).nothing_to_do, true);
+}));
+
+test('downgrade: a job field the target does not know is removed, the original backed up; finished jobs may keep head', withRepo((r) => {
+  currentFactory(r, {});
+  const path = join(r.jobDir('001-first'), 'job.json');
+  const job = JSON.parse(readFileSync(path, 'utf8'));
+  job.owner = { name: 'Test', email: 'test@example.invalid' };
+  writeFileSync(path, `${JSON.stringify(job, null, 2)}\n`);
+  const done = join(r.jobDir('002-second'), 'job.json');
+  const second = JSON.parse(readFileSync(done, 'utf8'));
+  Object.assign(second, { stage: 'done', status: 'merged', head: 'a'.repeat(40) });
+  writeFileSync(done, `${JSON.stringify(second, null, 2)}\n`);
+  const rep = json(r, ['--apply'], { from: TO, to: '0.4.0' });
+  assert.deepEqual(changesOf(rep), ['jobs/001-first/job.json: remove owner (0.4.0 does not know it)', 'jobs/002-second/job.json: remove head (0.4.0 does not know it)']);
+  assert.equal(Object.hasOwn(JSON.parse(readFileSync(path, 'utf8')), 'owner'), false);
+  assert.equal(JSON.parse(readFileSync(join(rep.backup, 'jobs', '001-first', 'job.json'), 'utf8')).owner.name, 'Test');
+  assert.ok(rep.backup.startsWith(join(r.fdir, 'upgrade-backup-')));
+}));
+
+test('downgrade refused: a remote factory, with the reason and the manual choice; nothing changes', withRepo((r) => {
+  claudeDir(r);
+  writeJson(join(r.repo, 'factory.json'), { remote: { url: '../state.git', branch: 'factory-state', allowed_signers: '.github/allowed_signers' }, advisor: { share: true } });
+  const before = snapshot(r.tmp);
+  const err = migrate(r, ['--apply'], 1, { from: TO, to: '0.4.0' });
+  assert.match(err, /^refused: cannot move this repo back to 0\.4\.0:\n {2}- .*factory\.json sets 'remote': 0\.4\.0 has no remote factory\. .*signed history \(remote\.allowed_signers\).*Stay on this version, or stop using the remote factory first/);
+  assert.deepEqual(snapshot(r.tmp), before);
+}));
+
+test('downgrade refused: an unfinished job whose recorded commit protects its merge', withRepo((r) => {
+  currentFactory(r, {});
+  const path = join(r.jobDir('002-second'), 'job.json');
+  const job = JSON.parse(readFileSync(path, 'utf8'));
+  Object.assign(job, { stage: 'ship', head: 'b'.repeat(40) });
+  writeFileSync(path, `${JSON.stringify(job, null, 2)}\n`);
+  const before = snapshot(r.tmp);
+  const err = migrate(r, ['--apply'], 1, { from: TO, to: '0.4.0' });
+  assert.match(err, /jobs\/002-second\/job\.json records the commit proof and review passed \('head'\), which merge checks; 0\.4\.0 would merge whatever the branch holds\. Finish the job first/);
+  assert.deepEqual(snapshot(r.tmp), before);
+}));
+
+test('refused: any move to a version before 0.3.0 (the Python CLI)', withRepo((r) => {
+  currentFactory(r, {});
+  for (const to of ['0.2.0', 'kwcantrell']) {
+    assert.match(migrate(r, ['--apply'], 1, { from: TO, to }), new RegExp(`^refused: cannot move this repo to ${to}: it ran the Python CLI, which is retired; 0\\.3\\.0 is the oldest`));
+  }
 }));
 
 // ---------------------------------------------------------------- snapshot helper and git maintenance
@@ -558,7 +675,7 @@ test('a git maintenance lock appearing and vanishing between snapshots does not 
   const lock = join(r.repo, '.git', 'objects', 'maintenance.lock');
   writeFileSync(lock, '');
   const before = snapshot(r.tmp);
-  upgrade(r, ['--apply'], 1);
+  migrate(r, ['--apply'], 1);
   rmSync(lock);
   assert.deepEqual(snapshot(r.tmp), before);
 }));

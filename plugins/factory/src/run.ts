@@ -37,7 +37,7 @@ import {
   syncForRead,
 } from './factory.ts';
 import type { Args, Command, Io } from './factory.ts';
-import { cmdUpgrade, SCOPES, UsageProblem } from './upgrade.ts';
+import { cmdMigrateRepo, SCOPES, UPGRADE_MOVED, UsageProblem } from './upgrade.ts';
 
 export type { Io } from './factory.ts';
 
@@ -80,7 +80,7 @@ interface Spec {
   help: string;
   positionals?: Positional[];
   options?: Option[];
-  fn?: Command | 'dashboard' | 'upgrade';
+  fn?: Command | 'dashboard' | 'upgrade' | 'migrate-repo';
   sub?: Spec[];
   extra?: Record<string, unknown>;
   /** A read command: with a remote factory it pulls first, unless --offline. */
@@ -282,10 +282,23 @@ export const COMMANDS: Spec[] = [
   },
   {
     name: 'upgrade',
-    help: 'move this repo from an older factory plugin and factory/ dir to this version (dry run unless --apply)',
+    help: 'moved: run factory-doctor migrate (this prints the command and exits 2)',
     options: [
-      { name: 'repo', value: 'string', help: 'the git checkout to upgrade (default: the one holding the current directory)' },
-      { name: 'apply', help: 'make the changes (without it, only print them)' },
+      { name: 'repo', value: 'string', help: 'ignored: see factory-doctor migrate' },
+      { name: 'apply', help: 'ignored: see factory-doctor migrate' },
+      { name: 'scope', value: 'string', choices: SCOPES, repeat: true, help: 'ignored: see factory-doctor migrate' },
+      { name: 'json' },
+    ],
+    fn: 'upgrade',
+  },
+  {
+    name: 'migrate-repo',
+    help: 'plumbing for factory-doctor migrate: move the factory dir, factory.json and settings between versions; prints JSON (dry run unless --apply)',
+    options: [
+      { name: 'from', value: 'string', help: 'the version the repo is at (an id of --versions)' },
+      { name: 'to', value: 'string', help: 'the version to move it to' },
+      { name: 'repo', value: 'string', help: 'the git checkout to migrate (default: the one holding the current directory)' },
+      { name: 'apply', help: 'make the changes (without it, only report them)' },
       {
         name: 'scope',
         value: 'string',
@@ -293,9 +306,9 @@ export const COMMANDS: Spec[] = [
         repeat: true,
         help: 'settings scope to change: project, local or user; repeatable (default: project and local; user only when named)',
       },
-      { name: 'json' },
+      { name: 'versions', help: 'print the versions it knows, with their factory.json keys and job.json fields' },
     ],
-    fn: 'upgrade',
+    fn: 'migrate-repo',
   },
   {
     name: 'dashboard',
@@ -561,14 +574,18 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
     throw error;
   }
   if (parsed.spec.fn === 'upgrade') {
-    // Not through ensure()/loadConfig(): a dry run writes nothing, and an old factory.json the
-    // current CLI refuses is something the upgrade reports, not a reason to stop.
+    io.stderr(UPGRADE_MOVED);
+    return EXIT.usage;
+  }
+  if (parsed.spec.fn === 'migrate-repo') {
+    // Not through ensure()/loadConfig(): a dry run writes nothing, and a factory.json the target
+    // (or this CLI) refuses is something the migration reports or fixes, not a reason to stop.
     try {
-      cmdUpgrade(parsed.args, io);
+      cmdMigrateRepo(parsed.args, io);
       return EXIT.ok;
     } catch (error) {
       if (error instanceof UsageProblem) {
-        io.stderr(`factory upgrade: error: ${error.message}\n`);
+        io.stderr(`factory migrate-repo: error: ${error.message}\n`);
         return EXIT.usage;
       }
       if (error instanceof Refused) {

@@ -32,7 +32,7 @@ function sh(command: string, cwd: string, extra: NodeJS.ProcessEnv = {}): { stat
 
 const COMMANDS = [
   'init', 'new', 'start', 'spec', 'approve', 'built', 'proof', 'round', 'verdict', 'human', 'resume', 'merge',
-  'rework', 'close', 'config', 'note', 'followup', 'agents', 'path', 'status', 'stats', 'upgrade', 'dashboard',
+  'rework', 'close', 'config', 'note', 'followup', 'agents', 'path', 'status', 'stats', 'upgrade', 'migrate-repo', 'dashboard',
 ];
 
 test('the copy has no node_modules and the package has no dependencies', () => {

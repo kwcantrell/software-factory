@@ -58,10 +58,11 @@ test('allowed-tools pre-approves only npx station commands, never merge, approve
   }
 });
 
-test('the upgrade skill pre-approves only the dry run and --help, never --apply', () => {
+test('the upgrade skill points to factory-doctor migrate and pre-approves only factory upgrade --help', () => {
   const allowed = frontmatter(readFileSync(join(PLUGIN, 'skills', 'upgrade', 'SKILL.md'), 'utf8'))['allowed-tools'] ?? '';
   const rules = allowed.split(/,\s*(?=Bash\()/).map((r) => r.slice(`Bash(${INVOCATION} `.length, -1));
-  assert.deepEqual(rules, ['upgrade', 'upgrade --json', 'upgrade --help', '--help:*']);
+  assert.deepEqual(rules, ['upgrade --help']);
+  assert.match(readFileSync(join(PLUGIN, 'skills', 'upgrade', 'SKILL.md'), 'utf8'), /factory-doctor migrate/);
 });
 
 test('the human-gate skills stay user-only', () => {
