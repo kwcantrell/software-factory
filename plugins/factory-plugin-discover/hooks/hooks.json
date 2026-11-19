@@ -1,0 +1,17 @@
+{
+  "description": "factory-plugin-discover: when a prompt or its working directory is about software-factory (a software-factory checkout, a repo that uses the factory, or software-factory words in the prompt), adds one line of context telling Claude to run factory-plugin-discover's match first. At most once per session; otherwise prints nothing. It never blocks a prompt.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/src/cli.ts", "hook"],
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "name": "factory-dev",
+  "version": "0.1.0",
+  "description": "Dev tooling for the software-factory repository: one check command that runs every CI gate, and the release tag/version check that prints a version's release notes."
+}

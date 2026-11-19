@@ -1,0 +1,1 @@
+{"session_id": "5b1e9f2a-2222-4c3d-8e54-000000000001", "transcript_path": "/home/dev/.claude/projects/-home-dev-src/5b1e9f2a-2222-4c3d-8e54-000000000001.jsonl", "cwd": "/", "permission_mode": "default", "hook_event_name": "UserPromptSubmit", "prompt": "/factory:run add a dark mode toggle to the settings page"}
