@@ -1,6 +1,7 @@
 // check: every step passes in a clean fixture checkout, and each one is made to fail in turn; the exit
 // code and the named failed step are checked each time.
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
@@ -25,7 +26,7 @@ async function check(f: Fixture, argv: string[] = [], env: NodeJS.ProcessEnv = w
   return { code, stdout, stderr };
 }
 
-const ALL_STEPS = ['json', 'validate .', 'validate plugins/demo', 'typecheck', 'test', 'release', 'plugin-convention'];
+const ALL_STEPS = ['json', 'validate .', 'validate plugins/demo', 'typecheck', 'test', 'release', 'plugin-convention', 'docs'];
 
 /** Asserts exit 1, an empty stdout, and exactly `failed` named in the closing line. */
 function assertFailed(r: { code: number; stdout: string; stderr: string }, failed: string[]): void {
@@ -48,6 +49,9 @@ test('a clean checkout passes every step, in order, and exits 0', async () => {
   assert.match(r.stderr, /^ok   \.claude-plugin\/marketplace\.json$/m);
   assert.match(r.stderr, /stub factory-plugin-builder check --all --repo \./);
   assert.match(r.stderr, /^PASS  release /m);
+  // no commits, so no base resolves: the doc map is linted, stale docs are not checked
+  assert.match(r.stderr, /no base resolves \(origin\/main, main\): checking the doc map only/);
+  assert.match(r.stderr, /^stub factory-docs lint --repo \.$/m);
 });
 
 test('without --json it prints one line per step and "all checks passed"', async () => {
@@ -147,8 +151,35 @@ test('plugin-convention: factory-plugin-builder check --all failing, or missing,
   assert.match(r.stderr, /plugins\/factory-plugin-builder\/src\/cli\.ts is missing/);
 });
 
+test('docs: factory-docs failing, or missing, fails the step', async () => {
+  const r = await check(checkout({ docsExit: 1 }));
+  assertFailed(r, ['docs']);
+  const f = checkout();
+  rmSync(join(f.root, 'plugins', 'factory-docs'), { recursive: true });
+  const missing = await check(f);
+  assertFailed(missing, ['docs']);
+  assert.match(missing.stderr, /plugins\/factory-docs\/src\/cli\.ts is missing/);
+});
+
+test('docs: runs gate against main when it resolves, and against origin/main before main', async () => {
+  const f = checkout();
+  const git = (...args: string[]) => {
+    const r = spawnSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', '-c', 'commit.gpgsign=false', ...args], { cwd: f.root, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+  };
+  git('add', '-A');
+  git('commit', '-q', '-m', 'initial');
+  git('branch', '-M', 'main');
+  const onMain = await check(f, ['--json']);
+  assert.equal(onMain.code, EXIT.ok, onMain.stderr);
+  assert.match(onMain.stderr, /^stub factory-docs gate --base main --repo \.$/m);
+  assert.deepEqual(JSON.parse(onMain.stdout).steps.at(-1).command, ['node', 'plugins/factory-docs/src/cli.ts', 'gate', '--base', 'main', '--repo', '.']);
+  git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+  assert.match((await check(f)).stderr, /^stub factory-docs gate --base origin\/main --repo \.$/m);
+});
+
 test('every step runs after a failure, and every failed step is listed', async () => {
-  const f = checkout({ typecheckExit: 1, testExit: 1, conventionExit: 1 });
+  const f = checkout({ typecheckExit: 1, testExit: 1, conventionExit: 1, docsExit: 1 });
   writeFileSync(join(f.root, 'bad.json'), '[');
   writePlugin(f.root, 'demo', '5.0.0');
   assertFailed(await check(f, [], { ...withFakeClaude(cleanEnv(), f), FAKE_CLAUDE_FAIL: 'plugins/demo' }), [
@@ -158,5 +189,6 @@ test('every step runs after a failure, and every failed step is listed', async (
     'test',
     'release',
     'plugin-convention',
+    'docs',
   ]);
 });

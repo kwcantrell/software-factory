@@ -33,6 +33,10 @@ export interface CheckOptions {
 /** The convention checker the steps call: the checkout's own factory-plugin-builder. */
 export const PLUGIN_BUILDER_CLI = 'plugins/factory-plugin-builder/src/cli.ts';
 export const TEMPLATE_PATH = 'templates/plugin';
+/** The doc gate the docs step calls: the checkout's own factory-docs. */
+export const DOCS_CLI = 'plugins/factory-docs/src/cli.ts';
+/** Where the docs step measures stale docs from: the first that resolves and has a merge-base with HEAD. */
+export const DOCS_BASES = ['origin/main', 'main'] as const;
 
 /** The first executable named `name` on the PATH in `env`, or null. */
 export function findOnPath(name: string, env: NodeJS.ProcessEnv): string | null {
@@ -110,13 +114,25 @@ export function validateTargets(root: string): string[] {
   return targets;
 }
 
+/** The first of DOCS_BASES that is a commit with a merge-base with HEAD, or null. */
+export async function docsBase(root: string, env: NodeJS.ProcessEnv): Promise<string | null> {
+  const git = findOnPath('git', env) ?? 'git';
+  const quiet = () => undefined;
+  for (const ref of DOCS_BASES) {
+    if ((await exec(git, ['rev-parse', '--verify', '-q', `${ref}^{commit}`], root, env, quiet, true)).exitCode !== 0) continue;
+    if ((await exec(git, ['merge-base', ref, 'HEAD'], root, env, quiet, true)).exitCode === 0) return ref;
+  }
+  return null;
+}
+
 function header(stream: (text: string) => void, name: string, command: string[]): void {
   stream(`\n== ${name}: ${command.join(' ')}\n`);
 }
 
 /**
  * Runs, in order and all of them: json, `claude plugin validate` on each target, `npm run typecheck`,
- * `npm test`, the release check (no tag) and `factory-plugin-builder check --all`.
+ * `npm test`, the release check (no tag), `factory-plugin-builder check --all`, and the doc gate
+ * (`factory-docs gate --base <ref>` when origin/main or main resolves, `factory-docs lint` otherwise).
  */
 export async function checkAll(root: string, options: CheckOptions): Promise<CheckResult> {
   const { env, stream } = options;
@@ -173,6 +189,17 @@ export async function checkAll(root: string, options: CheckOptions): Promise<Che
     done({ name: 'plugin-convention', command: conventionCommand, status: 'fail', reason: `${PLUGIN_BUILDER_CLI} is missing` });
   } else {
     done(fromExec('plugin-convention', conventionCommand, await exec(process.execPath, conventionArgs, root, childEnv, stream)));
+  }
+
+  const base = await docsBase(root, childEnv);
+  const docsArgs = base === null ? [DOCS_CLI, 'lint', '--repo', '.'] : [DOCS_CLI, 'gate', '--base', base, '--repo', '.'];
+  const docsCommand = ['node', ...docsArgs];
+  header(stream, 'docs', docsCommand);
+  if (base === null) stream(`no base resolves (${DOCS_BASES.join(', ')}): checking the doc map only, not stale docs\n`);
+  if (!existsSync(join(root, DOCS_CLI))) {
+    done({ name: 'docs', command: docsCommand, status: 'fail', reason: `${DOCS_CLI} is missing` });
+  } else {
+    done(fromExec('docs', docsCommand, await exec(process.execPath, docsArgs, root, childEnv, stream)));
   }
 
   return { ok: steps.every((s) => s.status !== 'fail'), steps };
