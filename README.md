@@ -200,6 +200,7 @@ plugins/factory/                           the plugin
 plugins/factory-plugin-builder/            builds plugins for this marketplace: new, check (the CLI convention), verify
 plugins/factory-dev/                       develops this repo: check (every CI gate), release (tag/version check, notes)
 plugins/factory-docs/                      keeps this repo's docs in sync with its code: which, stale, lint, gate
+plugins/factory-plugin-advisor/            tracks recurring friction with these plugins and drafts fixes: record, suggest, file
 docs/docs-map.json                         factory-docs' map: each doc and the globs of the code it describes
 templates/plugin/                          the template `npm run new-plugin -- <name>` copies (not in the marketplace)
 package.json, tsconfig.json                dev tooling only: typecheck, tests, new-plugin
@@ -218,6 +219,12 @@ Docs are kept in sync with code by the `factory-docs` plugin: `docs/docs-map.jso
 the code it describes, `node plugins/factory-docs/src/cli.ts stale` lists the docs a change left
 stale, and `gate` (lint + stale) runs in `factory-dev check` and on every pull request; see
 [plugins/factory-docs/README.md](plugins/factory-docs/README.md).
+
+When the same problem with one of these plugins keeps coming back, the `factory-plugin-advisor`
+plugin notices: its skill and its hook record each friction in a local, redacted log, and once an
+issue recurs it drafts a fix with a paste-ready `/factory:run` request (and, only after you confirm,
+files it as an issue on this public repository); see
+[plugins/factory-plugin-advisor/README.md](plugins/factory-plugin-advisor/README.md).
 
 Contributing: see [CONTRIBUTING.md](CONTRIBUTING.md). Changes are listed in [CHANGELOG.md](CHANGELOG.md). MIT licensed ([LICENSE](LICENSE)).
 

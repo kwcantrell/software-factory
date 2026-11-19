@@ -53,6 +53,12 @@
       "plugins/factory-docs/.claude-plugin/plugin.json",
       "docs/docs-map.json"
     ],
+    "plugins/factory-plugin-advisor/README.md": [
+      "plugins/factory-plugin-advisor/src/**",
+      "plugins/factory-plugin-advisor/hooks/**",
+      "plugins/factory-plugin-advisor/package.json",
+      "plugins/factory-plugin-advisor/.claude-plugin/plugin.json"
+    ],
     "plugins/factory/skills/run/SKILL.md": ["plugins/factory/src/run.ts"],
     "plugins/factory/skills/approve/SKILL.md": ["plugins/factory/src/run.ts", "plugins/factory/src/gate.ts"],
     "plugins/factory/skills/ship/SKILL.md": ["plugins/factory/src/run.ts", "plugins/factory/src/gate.ts"],
@@ -66,6 +72,7 @@
     "plugins/factory-plugin-builder/skills/build-plugin/SKILL.md": ["plugins/factory-plugin-builder/src/run.ts", "plugins/factory-plugin-builder/src/scaffold.ts", "plugins/factory-plugin-builder/src/check.ts", "plugins/factory-plugin-builder/src/verify.ts"],
     "plugins/factory-dev/skills/factory-dev/SKILL.md": ["plugins/factory-dev/src/run.ts", "plugins/factory-dev/src/check.ts", "plugins/factory-dev/src/release.ts"],
     "plugins/factory-docs/skills/factory-docs/SKILL.md": ["plugins/factory-docs/src/run.ts", "plugins/factory-docs/src/docs.ts"],
+    "plugins/factory-plugin-advisor/skills/factory-plugin-advisor/SKILL.md": ["plugins/factory-plugin-advisor/src/run.ts", "plugins/factory-plugin-advisor/src/advisor.ts", "plugins/factory-plugin-advisor/src/file.ts"],
     "templates/plugin/skills/plugin-template/SKILL.md": ["templates/plugin/src/**"]
   },
   "changelog": "CHANGELOG.md",
