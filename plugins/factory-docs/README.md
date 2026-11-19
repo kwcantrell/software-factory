@@ -58,7 +58,10 @@ Any other key is refused (exit 1), as is a doc path that is absolute or has `..`
 git-style and match whole repo-relative paths: `**/` spans any number of directories (or none), `**`
 anything, `*` and `?` stay within one path segment, everything else is literal. When a doc's code
 moves, or a new doc or plugin is added, update the map in the same change; `lint` says what is
-missing.
+missing. In this repo each plugin's README covers its `src/**`, `package.json` and
+`.claude-plugin/plugin.json`, plus its `hooks/**` when it has hooks (`factory-plugin-advisor`; the
+`factory` plugin's hooks are covered by the root `README.md`), and each SKILL.md covers the CLI
+code it calls.
 
 ## `which <path>...`
 
