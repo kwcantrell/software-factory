@@ -215,7 +215,7 @@ next one, rule by rule (the bracketed ids are its rule names).
   is refused up front; `merge` verifies the job's state history against `remote.allowed_signers`
   as committed at the project checkout's HEAD, and only `remote.unsigned_ok` turns both off. Read
   commands set `read: true` in `run.ts` and take `--offline`. Local mode (no `remote`) must behave exactly as
-  before. `remote.test.ts` uses a bare repo in a temp dir as the remote and two clones as two people,
+  before. the `remote*.test.ts` suites (shared setup in `remote-helpers.ts`; keep each file under 60 s, the per-test timeout is 120 s per file) use a bare repo in a temp dir as the remote and two clones as two people,
   each signing with a throwaway SSH key from `ssh-keygen` in the temp dir (never the user's keys).
 - **Every user-visible change gets a semver bump and a changelog entry.** Add it under
   `## [Unreleased]` in `CHANGELOG.md` (Keep a Changelog). **One changelog, one repo version:** every
