@@ -1,0 +1,25 @@
+{
+  "id": "001-intake-job",
+  "title": "Intake job",
+  "stage": "intake",
+  "status": "active",
+  "needs_human": null,
+  "activity": "created",
+  "spec": null,
+  "spec_sha": null,
+  "branch": null,
+  "base": null,
+  "base_branch": null,
+  "worktree": null,
+  "proof_attempts": 0,
+  "rounds": [],
+  "created": "2026-11-19T07:43:04Z",
+  "history": [
+    {
+      "at": "2026-11-19T07:43:04Z",
+      "stage": "intake",
+      "event": "created"
+    }
+  ],
+  "updated": "2026-11-19T07:43:04Z"
+}

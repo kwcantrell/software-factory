@@ -32,6 +32,7 @@ import {
   Refused,
 } from './factory.ts';
 import type { Args, Command, Io } from './factory.ts';
+import { cmdUpgrade, SCOPES, UsageProblem } from './upgrade.ts';
 
 export type { Io } from './factory.ts';
 
@@ -62,6 +63,10 @@ interface Option {
   value?: 'string' | 'int'; // absent: a boolean flag
   required?: boolean;
   default?: unknown;
+  /** Allowed values of a string option. */
+  choices?: readonly string[];
+  /** May be given more than once; the value is the list of every one given (null if none). */
+  repeat?: boolean;
   help?: string;
 }
 
@@ -70,7 +75,7 @@ interface Spec {
   help: string;
   positionals?: Positional[];
   options?: Option[];
-  fn?: Command | 'dashboard';
+  fn?: Command | 'dashboard' | 'upgrade';
   sub?: Spec[];
   extra?: Record<string, unknown>;
 }
@@ -209,6 +214,23 @@ export const COMMANDS: Spec[] = [
     fn: cmdStats,
   },
   {
+    name: 'upgrade',
+    help: 'move this repo from an older factory plugin and factory/ dir to this version (dry run unless --apply)',
+    options: [
+      { name: 'repo', value: 'string', help: 'the git checkout to upgrade (default: the one holding the current directory)' },
+      { name: 'apply', help: 'make the changes (without it, only print them)' },
+      {
+        name: 'scope',
+        value: 'string',
+        choices: SCOPES,
+        repeat: true,
+        help: 'settings scope to change: project, local or user; repeatable (default: project and local; user only when named)',
+      },
+      { name: 'json' },
+    ],
+    fn: 'upgrade',
+  },
+  {
     name: 'dashboard',
     help: 'serve the dashboard',
     options: [{ name: 'port', value: 'int', default: 8787 }],
@@ -245,8 +267,12 @@ function positionalUsage(p: Positional): string {
   }
 }
 
+function metavarOf(o: Option): string {
+  return o.choices ? `{${o.choices.join(',')}}` : o.name.toUpperCase().replace(/-/g, '_');
+}
+
 function optionUsage(o: Option): string {
-  const metavar = o.name.toUpperCase().replace(/-/g, '_');
+  const metavar = metavarOf(o);
   const text = o.value ? `--${o.name} ${metavar}` : `--${o.name}`;
   return o.required ? text : `[${text}]`;
 }
@@ -277,7 +303,7 @@ function commandHelp(prog: string, spec: Spec): string {
   }
   text += '\noptions:\n' + row('-h, --help', 'show this help message and exit');
   for (const o of spec.options ?? []) {
-    const metavar = o.name.toUpperCase().replace(/-/g, '_');
+    const metavar = metavarOf(o);
     text += row(o.value ? `--${o.name} ${metavar}` : `--${o.name}`, o.help);
   }
   return text;
@@ -374,7 +400,10 @@ function parseCommand(prog: string, spec: Spec, argv: string[]): Parsed {
       if (n === null) fail(`argument --${option.name}: invalid int value: '${value}'`);
       args[key] = n;
     } else {
-      args[key] = value;
+      if (option.choices && !option.choices.includes(value)) {
+        fail(`argument --${option.name}: invalid choice: '${value}' (choose from ${choiceList(option.choices)})`);
+      }
+      args[key] = option.repeat ? [...((args[key] as string[] | null) ?? []), value] : value;
     }
   }
 
@@ -458,6 +487,25 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
       return EXIT.usage;
     }
     throw error;
+  }
+  if (parsed.spec.fn === 'upgrade') {
+    // Not through ensure()/loadConfig(): a dry run writes nothing, and an old factory.json the
+    // current CLI refuses is something the upgrade reports, not a reason to stop.
+    try {
+      cmdUpgrade(parsed.args, io);
+      return EXIT.ok;
+    } catch (error) {
+      if (error instanceof UsageProblem) {
+        io.stderr(`factory upgrade: error: ${error.message}\n`);
+        return EXIT.usage;
+      }
+      if (error instanceof Refused) {
+        io.stderr(`refused: ${error.message}\n`);
+        return EXIT.refused;
+      }
+      io.stderr(`factory: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
+      return EXIT.refused;
+    }
   }
   try {
     const root = ensure(factoryDir());
