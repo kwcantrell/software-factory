@@ -130,3 +130,7 @@ It never blocks a prompt and never exits non-zero; any error means no output. It
 `{"mode": ...}`, and `hinted-sessions.json` the hook's sessions. It is this plugin's own: a
 `plugin-discover` from another marketplace keeps its settings elsewhere, and its
 `PLUGIN_DISCOVER_CONFIG_DIR` changes nothing here.
+
+## Versioning
+
+Every plugin in this marketplace carries the same version, the repository's. `CHANGELOG.md` lists what changed in each release.

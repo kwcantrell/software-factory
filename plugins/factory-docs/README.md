@@ -134,3 +134,7 @@ each `lint` rule in temporary git repos; `test/run.test.ts` covers arguments, ou
 `test/cli.test.ts` runs every skill command line through npx from a fresh copy of the plugin; and
 `test/repo.test.ts` checks that this repository's own map passes `lint`. No test writes to the real
 repo.
+
+## Versioning
+
+Every plugin in this marketplace carries the same version, the repository's. `CHANGELOG.md` lists what changed in each release.

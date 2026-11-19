@@ -27,7 +27,7 @@ From a checkout, run it directly (`npm ci` first, for the typecheck's dev toolin
 
 ```sh
 node plugins/factory-dev/src/cli.ts check
-node plugins/factory-dev/src/cli.ts release v0.2.0
+node plugins/factory-dev/src/cli.ts release v0.3.0
 ```
 
 CI runs it from the checkout through npx, with no install step for the plugin:
@@ -87,13 +87,13 @@ directory) and prints nothing; `--json` prints `{"version", "tag", "plugins", "n
 exits 1 with `factory-dev: release check failed: <why>` on stderr.
 
 ```console
-$ node plugins/factory-dev/src/cli.ts release v0.2.0
-The first versioned release of the plugin: ...
+$ node plugins/factory-dev/src/cli.ts release v0.3.0
+### Upgrading ...
 
 $ node plugins/factory-dev/src/cli.ts release v0.1.0
-factory-dev: release check failed: tag 'v0.1.0' does not match plugin.json version 0.2.0 (expected 'v0.2.0')
+factory-dev: release check failed: tag 'v0.1.0' does not match plugin.json version 0.3.0 (expected 'v0.3.0')
 
-$ node plugins/factory-dev/src/cli.ts release v0.2.0 --notes-out "$RUNNER_TEMP/notes.md"   # the release workflow
+$ node plugins/factory-dev/src/cli.ts release v0.3.0 --notes-out "$RUNNER_TEMP/notes.md"   # the release workflow
 ```
 
 Without a tag, `release` checks that the current version is releasable; `check` runs it that way.

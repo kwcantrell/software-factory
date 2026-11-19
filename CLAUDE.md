@@ -78,7 +78,7 @@ node plugins/factory-plugin-builder/src/cli.ts verify <name>        # check + va
 node --test plugins/factory/test/cli.test.ts       # one suite
 claude plugin validate .                           # marketplace manifest
 claude plugin validate plugins/<name>              # one plugin (also templates/plugin)
-node plugins/factory-dev/src/cli.ts release v0.2.0 # would this tag release? prints its notes
+node plugins/factory-dev/src/cli.ts release v0.3.0 # would this tag release? prints its notes
 node plugins/factory-docs/src/cli.ts stale         # docs this change left stale (vs origin/main or main)
 node plugins/factory-docs/src/cli.ts which <path>  # the docs that describe a file
 node plugins/factory-docs/src/cli.ts gate          # lint the doc map + stale; factory-dev check runs it
