@@ -150,7 +150,9 @@ version by its release commit, else by its version), and the repository: setting
 `factory@kwcantrell-plugins`, the `factory/` dir's layout (the Python CLI's `.lock`, the dashboard a
 release installed), the `job.json` fields in use, the `factory.json` keys, the project agents' fixed
 sections and the `.factory/doctor.json` format. The repo's version is the newest thing it uses (or,
-with nothing old in it, the installed plugins').
+with nothing old in it, the installed plugins'). Going up, the repo's manual steps are checked
+against the repo itself for every version up to the target, so they still show after the plugins
+were updated first.
 
 **The plan**, in order, each step with its kind and the files it touches and why:
 
@@ -168,7 +170,8 @@ the newer tools that read both formats are installed, then switch the plugins. A
 would lose meaning is **refused** up front (exit 1, nothing changed): a remote factory (its state
 branch and signed history protect merges), an unfinished job whose recorded commit (`head`) protects
 its merge, and any move before 0.3.0 (the retired Python CLI). Otherwise what the target cannot read
-is migrated back: `factory.json` keys it refuses (`advisor`) and `job.json` fields it does not know.
+is migrated back: `factory.json` keys it refuses (`advisor`, and `"remote": null`, the local
+default) and `job.json` fields it does not know.
 
 **`--apply`** makes only the repo steps. It never edits `job.json` itself: it runs `factory
 migrate-repo --from <version> --to <version> --apply` (the plumbing, in `plugins/factory/src/upgrade.ts`)

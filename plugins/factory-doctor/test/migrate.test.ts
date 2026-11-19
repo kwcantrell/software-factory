@@ -374,6 +374,28 @@ test('a project agent without the doctor section is a manual step pointing to /f
   assert.doesNotMatch(stdout, /factory-reviewer-security\.md: project agents/, 'reviewers gained no section');
 }));
 
+test('after the plugins are updated, the repo still gets its own manual steps (an agent without the doctor section, remote signing)', box(async (b) => {
+  // The plugins were updated first (the upgrade order), so they are at the target already; the repo is not.
+  b.install(CURRENT);
+  mkdirSync(join(b.repo, '.claude', 'agents'), { recursive: true });
+  writeFileSync(join(b.repo, '.claude', 'agents', 'factory-builder.md'), '---\nname: factory-builder\n---\n<!-- fixed:handoff -->x<!-- /fixed -->\n');
+  writeFileSync(join(b.repo, 'factory.json'), `${JSON.stringify({ remote: { url: '../state.git', branch: 'factory-state', allowed_signers: '.github/allowed_signers' } })}\n`);
+  const { code, stdout, stderr } = await b.migrate([]);
+  assert.equal(code, 0, stderr);
+  assert.match(stdout, /\n {2}plugins: unreleased /);
+  assert.match(stdout, /\[manual\] \.claude\/agents\/factory-builder\.md: project agents of this station fail `factory agents check`.*run \/factory:agents/);
+  assert.match(stdout, /\[manual\] set up SSH signing for this repo: git config gpg\.format ssh/);
+  assert.doesNotMatch(stdout, /nothing to do/);
+  assert.match(stdout, /nothing to apply: only the steps above, which are yours/);
+  // Once the repo has them, nothing is left.
+  writeFileSync(join(b.repo, '.claude', 'agents', 'factory-builder.md'), '---\nname: factory-builder\n---\n<!-- fixed:handoff -->x<!-- /fixed -->\n<!-- fixed:doctor -->y<!-- /fixed -->\n');
+  b.git(['config', 'gpg.format', 'ssh']);
+  b.git(['config', 'user.signingkey', 'ssh-ed25519 AAAA test']);
+  const again = await b.migrate([]);
+  assert.equal(again.code, 0, again.stderr);
+  assert.doesNotMatch(again.stdout, /\[manual\]/);
+}));
+
 test('usage errors exit 2 with the message on stderr', box(async (b) => {
   for (const args of [['--apply', '--update-plugins'], ['--confirmed'], ['--to', '7.7.7'], ['--scope', 'everywhere'], ['extra'], ['--repo', join(b.dir, 'nowhere')]]) {
     const { code, stdout, stderr } = await b.migrate(args);

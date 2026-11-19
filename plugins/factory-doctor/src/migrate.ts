@@ -363,13 +363,27 @@ function applies(c: Change, h: Handling, s: RepoState, installs: Install[], env:
   return [];
 }
 
+/**
+ * The changes whose steps a move from `from` to `to` may hold. Going up, every repo change up to the
+ * target is evaluated, not only those after `from`: `from` may come from the installed plugins (the
+ * plugins are updated first, so after that step they are already at the target), and a repo change
+ * applies only when the repo itself still needs it (`applies` checks the repo). Plugin changes stay
+ * those after `from`: they are about the plugins, not the repo.
+ */
+function stepChanges(from: string, to: string): ReturnType<typeof rangeChanges> {
+  if (indexOf(to) < indexOf(from)) return rangeChanges(from, to);
+  const first = (REGISTRY[0] as VersionEntry).id;
+  const plugins = new Set(rangeChanges(from, to).filter((x) => x.change.area === 'plugins').map((x) => x.change));
+  return rangeChanges(first, to).filter((x) => x.change.area !== 'plugins' || plugins.has(x.change));
+}
+
 /** The steps the registry asks of the person (manual), and the refusals, for this repo. */
 function registrySteps(from: string, to: string, s: RepoState, installs: Install[], env: Env): { manual: Step[]; refused: string[] } {
   const manual: Step[] = [];
   const refused: string[] = [];
   const plugins = new Map<string, { names: string[]; text: string; version: string }>();
   const agents = new Map<string, { ids: string[]; text: string; version: string; why: string }>();
-  for (const { version, change, handling } of rangeChanges(from, to)) {
+  for (const { version, change, handling } of stepChanges(from, to)) {
     if (handling.kind === 'automatic') continue;
     const files = applies(change, handling, s, installs, env);
     if (files === null) continue;
