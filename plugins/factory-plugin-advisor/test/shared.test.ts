@@ -3,12 +3,12 @@
 // remote's state branch is created by the real factory CLI, so the factory keeps working on it.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { EXIT } from '../src/run.ts';
-import { AUTHOR, displayUrl, mergeState, privateHost, publicWarning, remoteHost, type ShareConfig, sharedOccurrence } from '../src/shared.ts';
+import { AUTHOR, displayUrl, mergeState, normaliseUrl, privateHost, publicWarning, remoteHost, type ShareConfig, sharedOccurrence } from '../src/shared.ts';
 import { FIXTURES, PLUGIN_ROOT, sandbox, type Sandbox } from './helpers.ts';
 import type { Env } from '../src/plugins.ts';
 
@@ -43,8 +43,11 @@ interface User {
   factory: (args: string[]) => string;
 }
 
-/** One person: their own config dir, home, username and project checkout (with factory.json). */
-function user(name: string, factoryJson: unknown, extra: Env = {}): User {
+/**
+ * One person: their own config dir, home, username and project checkout (with factory.json). With
+ * `ack` (the default) they have acknowledged the remote factory.json shares with (`share allow`).
+ */
+function user(name: string, factoryJson: unknown, extra: Env = {}, ack = true): User {
   const login = `${name.toLowerCase()}smith`;
   const home = `/home/${login}`;
   // FACTORY_DIR points at the project's factory dir; factory.json is read from its parent.
@@ -66,6 +69,7 @@ function user(name: string, factoryJson: unknown, extra: Env = {}): User {
     assert.equal(p.status, 0, `factory ${args.join(' ')}: ${p.stdout}${p.stderr}`);
     return p.stdout;
   };
+  if (ack) ok(box.call(['share', 'allow', '--repo', project]));
   return { box, project, name, factory };
 }
 
@@ -97,7 +101,7 @@ const list = (u: User): any[] => JSON.parse(ok(u.box.call(['list', '--json']))).
 test('off (no advisor.share, share false, or no remote) is exactly the local log: no id, no shared dir, no remote writes', () => {
   const { remote } = world();
   for (const cfg of [{}, { remote: { url: remote, branch: BRANCH } }, { remote: { url: remote, branch: BRANCH }, advisor: { share: false } }, { remote: null, advisor: { share: true } }]) {
-    const u = user('Ann', cfg);
+    const u = user('Ann', cfg, {}, false);
     const r = record(u, 'docs gate fails on a fresh clone');
     assert.deepEqual(r, { code: EXIT.ok, stdout: `Recorded ${JSON.parse(ok(u.box.call(['list', '--json']))).issues[0].signature} (factory-docs, workaround): seen 1 time.\n`, stderr: '' }, JSON.stringify(cfg));
     const line = JSON.parse(readFileSync(join(u.box.config, 'occurrences.jsonl'), 'utf8'));
@@ -115,6 +119,190 @@ test('sharing on still refuses a local log inside a git checkout, and then share
   assert.equal(r.code, EXIT.failure);
   assert.match(r.stderr, /refusing to keep the log in .*inside the git checkout/);
   assert.deepEqual(sharedLog(remote), []);
+});
+
+// ------------------------------------------------------------------ 1b. the user's own acknowledgement
+
+const branchTip = (remote: string, branch = BRANCH): string => spawnSync('git', ['--git-dir', remote, 'rev-parse', '--verify', '-q', branch], { encoding: 'utf8' }).stdout.trim();
+const NOTICE = /turns on sharing with .* but you have not acknowledged that remote, so nothing is shared or read from it; to share, run: factory-plugin-advisor share allow --repo /;
+
+test('unacknowledged: record, the hook, list, show, suggest and dismiss act exactly as with sharing off', () => {
+  const { remote } = world();
+  // Bob acknowledged the remote: his occurrence and his dismiss are on the branch.
+  const bob = user('Bob', shared(remote));
+  ok(record(bob, 'docs gate fails on a fresh clone'));
+  const sig = list(bob)[0].signature;
+  ok(bob.box.call(['dismiss', sig]));
+  const tip = branchTip(remote);
+  assert.notEqual(tip, '');
+  // Ann's repository asks for sharing, but she never acknowledged it.
+  const ann = user('Ann', shared(remote), { CLAUDE_CODE_SESSION_ID: 'session-1' }, false);
+  const first = record(ann, 'docs gate fails on a fresh clone');
+  assert.equal(first.code, EXIT.ok);
+  assert.match(first.stdout, /seen 1 time\./, 'the shared occurrence is not counted');
+  const notices = (text: string): string[] => text.split('\n').filter((l) => NOTICE.test(l));
+  assert.equal(notices(first.stderr).length, 1, first.stderr);
+  assert.equal(first.stderr.split('\n').filter((l) => l !== '').length, 1, 'one line, nothing else');
+  assert.ok(first.stderr.startsWith(`factory-plugin-advisor: ${join(ann.project, 'factory.json')} turns on sharing with ${remote} (branch ${BRANCH})`), first.stderr);
+  assert.ok(first.stderr.trimEnd().endsWith(`share allow --repo ${ann.project}`), first.stderr);
+  assert.deepEqual(notices(record(ann, 'docs gate fails on a fresh clone').stderr), [], 'once per session');
+  ann.box.env.CLAUDE_CODE_SESSION_ID = 'session-2';
+  assert.equal(notices(record(ann, 'x happened').stderr).length, 1, 'a new session is told again');
+  // The hook records locally and stays silent.
+  const hook = readFileSync(join(FIXTURES, 'hook-factory-refused.json'), 'utf8');
+  assert.deepEqual(ann.box.call(['hook'], { stdin: hook }), { code: EXIT.ok, stdout: '', stderr: '' });
+  const lines = readFileSync(join(ann.box.config, 'occurrences.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.equal(lines.length, 4);
+  for (const l of lines) assert.equal(l.id, undefined, 'an unshared occurrence carries no id, as with sharing off');
+  // Reading: only the local log and local state. Bob's occurrence and his dismiss are not seen.
+  const issues = list(ann);
+  const mine = issues.find((i: any) => i.signature === sig);
+  assert.equal(mine.count, 2);
+  assert.equal(mine.status, 'open');
+  assert.equal(JSON.parse(ok(ann.box.call(['show', sig, '--json']))).occurrences.length, 2);
+  const s = JSON.parse(ok(ann.box.call(['suggest', '--threshold', '2', '--json'])));
+  assert.deepEqual(s.suggestions.map((x: any) => x.signature), [sig], 'suggested from local data, though Bob dismissed it');
+  ok(ann.box.call(['dismiss', sig]));
+  // Nothing was pushed, fetched or even cloned for Ann, and no notice came from the read commands.
+  assert.equal(branchTip(remote), tip, 'the branch did not move');
+  assert.equal(existsSync(join(ann.box.config, 'shared')), false, 'no clone, no queue: nothing read from the branch');
+  assert.deepEqual(notices(ann.box.call(['list']).stderr), [], 'only record gives the notice');
+});
+
+test('acknowledged: share allow records the normalised remote in the config dir, and sharing starts; share list shows it', () => {
+  const { remote } = world();
+  const bob = user('Bob', shared(remote));
+  ok(record(bob, 'docs gate fails on a fresh clone'));
+  const ann = user('Ann', shared(remote), {}, false);
+  assert.equal(list(ann).length, 0);
+  assert.deepEqual(JSON.parse(ok(ann.box.call(['share', 'list', '--json']))), { remotes: [] });
+  assert.match(ok(ann.box.call(['share', 'list'])), /No remote factory is acknowledged/);
+  // Without --repo, from FACTORY_DIR like every command.
+  const r = JSON.parse(ok(ann.box.call(['share', 'allow', '--json'])));
+  assert.equal(r.url, remote);
+  assert.equal(r.branch, BRANCH);
+  assert.equal(r.added, true);
+  assert.equal(r.configPath, join(ann.project, 'factory.json'));
+  assert.equal(r.warning, undefined, 'a local path is not public');
+  assert.equal(JSON.parse(ok(ann.box.call(['share', 'allow', '--json']))).added, false, 'twice is once');
+  // In the config dir, owner-only; never in the repository.
+  const file = join(ann.box.config, 'share-allowed.json');
+  assert.equal(statSync(file).mode & 0o777, 0o600);
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).remotes.map((x: any) => [x.url, x.branch]), [[remote, BRANCH]]);
+  assert.deepEqual(readdirSync(ann.project).sort(), ['.git', 'factory.json']);
+  const listed = JSON.parse(ok(ann.box.call(['share', 'list', '--json']))).remotes;
+  assert.deepEqual(listed.map((x: any) => [x.url, x.branch]), [[remote, BRANCH]]);
+  assert.match(ok(ann.box.call(['share', 'list'])), new RegExp(`^${remote.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}  branch ${BRANCH}  since `));
+  // Now Ann reads Bob's occurrence and shares her own.
+  assert.equal(list(ann)[0].count, 1);
+  const rec = record(ann, 'docs gate fails on a fresh clone');
+  assert.match(rec.stdout, /seen 2 times/);
+  assert.doesNotMatch(rec.stderr, NOTICE);
+  assert.equal(sharedLog(remote).length, 2);
+});
+
+test('a changed URL or branch in factory.json needs a new acknowledgement; the same remote spelled differently does not', () => {
+  const { box: w, remote } = world();
+  const other = join(w.dir, 'other.git');
+  git(['init', '-q', '--bare', '-b', 'main', other], w.dir);
+  const ann = user('Ann', shared(remote));
+  ok(record(ann, 'docs gate fails on a fresh clone'));
+  assert.equal(sharedLog(remote).length, 1);
+  const tip = branchTip(remote);
+  const setRemote = (url: string, branch = BRANCH): void => writeFileSync(join(ann.project, 'factory.json'), `${JSON.stringify({ remote: { url, branch }, advisor: { share: true } })}\n`);
+  // Another URL: nothing goes there, and nothing more to the old one; record says why.
+  setRemote(other);
+  const r = record(ann, 'docs gate fails again');
+  assert.equal(r.code, EXIT.ok);
+  assert.match(r.stderr, NOTICE);
+  assert.ok(r.stderr.includes(other));
+  assert.equal(branchTip(other), '', 'nothing pushed to the new remote');
+  assert.equal(branchTip(remote), tip);
+  assert.equal(list(ann).reduce((n: number, i: any) => n + i.count, 0), 2, 'local only');
+  // Another branch of the acknowledged URL: also a new acknowledgement.
+  setRemote(remote, 'other-branch');
+  assert.match(record(ann, 'docs gate fails a third time').stderr, NOTICE);
+  assert.equal(branchTip(remote, 'other-branch'), '');
+  assert.equal(branchTip(remote), tip);
+  // The acknowledged remote with a trailing slash (or `//`, `/./`) is the same remote.
+  setRemote(`${remote.replace(/\/state\.git$/, '//./state.git')}/`);
+  const back = record(ann, 'docs gate fails on a fresh clone');
+  assert.doesNotMatch(back.stderr, NOTICE);
+  assert.equal(sharedLog(remote).length, 2);
+  // Acknowledging the other remote shares there too.
+  setRemote(other);
+  ok(ann.box.call(['share', 'allow']));
+  ok(record(ann, 'docs gate fails on a fresh clone'));
+  assert.equal(sharedLog(other).length, 1);
+  assert.equal(JSON.parse(ok(ann.box.call(['share', 'list', '--json']))).remotes.length, 2);
+});
+
+test('revoked: share revoke stops sharing and reading at once; an unknown remote is refused', () => {
+  const { remote } = world();
+  const bob = user('Bob', shared(remote));
+  ok(record(bob, 'docs gate fails on a fresh clone'));
+  const ann = user('Ann', shared(remote));
+  assert.equal(list(ann)[0].count, 1);
+  const r = JSON.parse(ok(ann.box.call(['share', 'revoke', remote, BRANCH, '--json'])));
+  assert.deepEqual(r.removed.map((x: any) => [x.url, x.branch]), [[remote, BRANCH]]);
+  assert.deepEqual(JSON.parse(ok(ann.box.call(['share', 'list', '--json']))).remotes, []);
+  const tip = branchTip(remote);
+  const rec = record(ann, 'docs gate fails on a fresh clone');
+  assert.match(rec.stdout, /seen 1 time\./, "Bob's occurrence is no longer read");
+  assert.match(rec.stderr, NOTICE);
+  assert.equal(branchTip(remote), tip, 'nothing pushed');
+  assert.equal(list(ann)[0].count, 1);
+  // Without a branch, every branch of the URL goes; a remote that is not acknowledged is refused.
+  ok(ann.box.call(['share', 'allow']));
+  const all = JSON.parse(ok(ann.box.call(['share', 'revoke', `${remote}/`, '--json'])));
+  assert.equal(all.removed.length, 1);
+  const none = ann.box.call(['share', 'revoke', 'https://user:s3cret@example.com/x.git']);
+  assert.equal(none.code, EXIT.failure);
+  assert.equal(none.stdout, '');
+  assert.match(none.stderr, /^factory-plugin-advisor: https:\/\/example\.com\/x\.git is not acknowledged/);
+  assert.equal(none.stderr.includes('s3cret'), false);
+});
+
+test('share: usage errors, nothing to acknowledge, and credentials never stored', () => {
+  const { remote } = world();
+  const ann = user('Ann', {}, {}, false);
+  for (const args of [['share'], ['share', 'nope'], ['share', 'list', 'x'], ['share', 'list', '--repo', '.'], ['share', 'revoke'], ['share', 'revoke', 'a', 'b', 'c'], ['share', 'allow', 'x'], ['share', 'allow', '--min', '2'], ['share', 'allow', '--repo', join(ann.box.dir, 'missing')]]) {
+    const r = ann.box.call(args);
+    assert.equal(r.code, EXIT.usage, args.join(' '));
+    assert.equal(r.stdout, '');
+  }
+  const off = ann.box.call(['share', 'allow']);
+  assert.equal(off.code, EXIT.failure);
+  assert.match(off.stderr, /nothing to acknowledge: .*does not set "advisor": \{"share": true\}/);
+  assert.equal(existsSync(join(ann.box.config, 'share-allowed.json')), false);
+  // --repo reads that repository's factory.json, not FACTORY_DIR's.
+  const other = join(ann.box.dir, 'other');
+  mkdirSync(other);
+  git(['init', '-q', '-b', 'main', other], other);
+  writeFileSync(join(other, 'factory.json'), `${JSON.stringify({ remote: { url: 'https://ann:tok3n@GitHub.com/Org/x.git/', branch: BRANCH }, advisor: { share: true } })}\n`);
+  const r = ann.box.call(['share', 'allow', '--repo', other]);
+  assert.equal(r.code, EXIT.ok, r.stderr);
+  assert.match(r.stdout, /^Acknowledged: sharing the redacted friction log with https:\/\/GitHub\.com\/Org\/x\.git\/ \(branch factory-state\)/);
+  assert.match(r.stdout, /warning: sharing the redacted friction log on github\.com/, 'the public-remote warning, before any sharing');
+  const stored = readFileSync(join(ann.box.config, 'share-allowed.json'), 'utf8');
+  assert.equal(stored.includes('tok3n'), false, 'no credentials on disk');
+  assert.equal(r.stdout.includes('tok3n'), false);
+  assert.equal(JSON.parse(stored).remotes[0].url, 'https://github.com/Org/x.git');
+  assert.ok(remote !== '');
+});
+
+test('normaliseUrl: credentials, case of scheme and host, trailing slashes and dot segments', () => {
+  const cases: Array<[string, string]> = [
+    ['https://u:pw@GitHub.COM/Org/Repo.git/', 'https://github.com/Org/Repo.git'],
+    ['HTTPS://token@github.com/o/r.git', 'https://github.com/o/r.git'],
+    ['ssh://git@Host.Example:2222/o/r.git', 'ssh://host.example:2222/o/r.git'],
+    ['git@GitHub.com:org/repo.git/', 'git@github.com:org/repo.git'],
+    ['/srv//git/./state.git/', '/srv/git/state.git'],
+    ['/srv/git/x/../state.git', '/srv/git/state.git'],
+    ['file:///srv/state.git/', 'file:///srv/state.git'],
+  ];
+  for (const [input, want] of cases) assert.equal(normaliseUrl(input), want, input);
+  assert.notEqual(normaliseUrl('git@github.com:org/repo.git'), normaliseUrl('git@github.com:org/other.git'));
 });
 
 // ------------------------------------------------------------------ 2. what is shared

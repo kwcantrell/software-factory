@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
   DEFAULT_THRESHOLD,
@@ -21,7 +22,8 @@ import { type Env, marketplacePlugins, ownRoot, reservedNames } from './plugins.
 import { identityOf, osIdentity, type SystemIdentity } from './redact.ts';
 import { applyStation, type ApplyResult, dismissStation, type Line, locateFactory, locateRepo, stationsReport, type StationsReport, suggestStations, type SuggestResult } from './station-drafts.ts';
 import { DEFAULT_MIN } from './stations.ts';
-import { openStore } from './store.ts';
+import { allowRemote, type Allowed, displayUrl, factoryJsonPath, publicWarning, readAllowed, readShareConfig, revokeRemote, type ShareConfig, unacknowledgedNotice } from './shared.ts';
+import { CliError, openStore } from './store.ts';
 
 export const CLI_NAME = 'factory-plugin-advisor';
 
@@ -76,6 +78,12 @@ Commands:
                              failure. Never commits.
   stations dismiss <id> [--repo <path>]
                              Never suggest or apply this station suggestion
+  share list                 The remote factories you have acknowledged for sharing
+  share allow [--repo <path>]
+                             Acknowledge the remote (URL and branch) that the repository's
+                             factory.json shares with; recorded in your config dir, never the repo
+  share revoke <url> [<branch>]
+                             Withdraw an acknowledgement (every branch of <url> without <branch>)
   hook                       Read a Claude Code PostToolUseFailure hook input on stdin and record a
                              failed marketplace CLI call (used by hooks/hooks.json; prints nothing).
                              A factory exit 2 (escalated to a human) is not a failure.
@@ -88,8 +96,9 @@ Options:
 The log lives in $FACTORY_PLUGIN_ADVISOR_CONFIG_DIR, else $XDG_CONFIG_HOME/factory-plugin-advisor,
 else ~/.config/factory-plugin-advisor (owner-only), never inside a git checkout. With factory.json
 "advisor": {"share": true} and a remote factory, occurrences and issue state are also shared in
-advisor/ on the factory's state branch (see the README); set FACTORY_PLUGIN_ADVISOR_SHARE_AS=<name>
-to add that name to what you share.
+advisor/ on the factory's state branch (see the README), but only once you have acknowledged that
+remote yourself with 'share allow': a repository cannot opt you in. Set
+FACTORY_PLUGIN_ADVISOR_SHARE_AS=<name> to add that name to what you share.
 
 Exit codes: 0 success, 1 command failed, 2 usage error (message on stderr).
 `;
@@ -103,6 +112,7 @@ const COMMAND_OPTIONS: Record<string, readonly string[]> = {
   dismiss: [],
   file: ['repo', 'confirm'],
   stations: ['repo', 'min', 'confirm'],
+  share: ['repo'],
   hook: [],
 };
 const POSITIONALS: Record<string, number> = { record: 0, list: 0, show: 1, suggest: 0, dismiss: 1, file: 1, hook: 0 };
@@ -285,6 +295,13 @@ export function run(argv: readonly string[], io: Io): number {
       if (!spec.options.includes(key)) return usageError(io, `stations${sub === '' ? '' : ` ${sub}`} does not take --${key}`);
     }
     if (ids.length !== (spec.id ? 1 : 0)) return usageError(io, spec.id ? `stations ${sub} takes exactly one <id>, got ${ids.length}` : `stations${sub === '' ? '' : ` ${sub}`} takes no arguments, got ${ids.length}`);
+  } else if (command === 'share') {
+    const [sub = '', ...args] = rest;
+    if (!['list', 'allow', 'revoke'].includes(sub)) return usageError(io, sub === '' ? 'share needs a command: share list, share allow or share revoke <url> [<branch>]' : `unknown share command '${sub}' (use share list, share allow or share revoke <url> [<branch>])`);
+    if (values.repo !== undefined && sub !== 'allow') return usageError(io, `share ${sub} does not take --repo`);
+    if (sub === 'revoke' ? args.length < 1 || args.length > 2 : args.length !== 0) {
+      return usageError(io, sub === 'revoke' ? `share revoke takes <url> and an optional <branch>, got ${args.length} arguments` : `share ${sub} takes no arguments, got ${args.length}`);
+    }
   } else if (rest.length !== wanted) {
     return usageError(io, wanted === 0 ? `${command} takes no arguments, got ${rest.length}` : `${command} takes exactly one <signature>, got ${rest.length}`);
   }
@@ -314,6 +331,15 @@ export function run(argv: readonly string[], io: Io): number {
       if (command === 'record' || command === 'suggest') {
         const warning = store.shared.warnOnce();
         if (warning !== null) io.stderr(`${warning}\n`);
+      }
+    }
+    if (store.unacknowledged !== null && command === 'record') {
+      // factory.json asks for sharing the user never acknowledged: say so (once per session), share nothing.
+      try {
+        const notice = unacknowledgedNotice(store.dir, store.unacknowledged, env, store.files);
+        if (notice !== null) lines.push(notice);
+      } catch {
+        // the config dir is unusable; record already said so
       }
     }
     for (const line of lines) io.stderr(`${CLI_NAME}: ${line}\n`);
@@ -376,6 +402,26 @@ export function run(argv: readonly string[], io: Io): number {
         const r = dismissStation(line, store, id, now());
         return out(r, `Dismissed station suggestion ${r.id}; it will not be suggested or applied again.\n`);
       }
+      case 'share': {
+        const [sub = '', url = '', branch] = rest;
+        const cwd = io.cwd ?? process.cwd();
+        if (sub === 'list') {
+          const remotes = readAllowed(store.dir);
+          return out({ remotes }, remotes.length === 0 ? 'No remote factory is acknowledged for sharing.\n' : remotes.map((r) => `${r.url}  branch ${r.branch}  since ${r.at}\n`).join(''));
+        }
+        if (sub === 'allow') {
+          const share = shareToAllow(values.repo, env, cwd);
+          const { entry, added } = allowRemote(store.dir, share, store.files, now());
+          const warning = publicWarning(share);
+          return out(
+            { ...entry, configPath: share.configPath, added, ...(warning === null ? {} : { warning }) },
+            `${added ? 'Acknowledged' : 'Already acknowledged'}: sharing the redacted friction log with ${displayUrl(share.url)} (branch ${share.branch}), as ${share.configPath} asks.\n${warning === null ? '' : `${warning}\n`}Undo with: ${CLI_NAME} share revoke ${entry.url} ${entry.branch}\n`,
+          );
+        }
+        const removed: Allowed[] = revokeRemote(store.dir, url, branch, store.files, cwd);
+        if (removed.length === 0) throw new CliError(`${displayUrl(url)}${branch === undefined ? '' : ` (branch ${branch})`} is not acknowledged; see share list`);
+        return out({ removed }, removed.map((r) => `Revoked ${r.url} (branch ${r.branch}): nothing more is shared with it or read from it.\n`).join(''));
+      }
       case 'file': {
         const r = fileIssue(store, rest[0] ?? '', { confirm: values.confirm === true, env, identity, ...(values.repo === undefined ? {} : { repo: values.repo }) });
         return out({ ...r, dryRun: !r.filed }, fileText(r));
@@ -389,6 +435,27 @@ export function run(argv: readonly string[], io: Io): number {
     return EXIT.failure;
   }
   }
+}
+
+/**
+ * The sharing that the repository's factory.json asks for: with --repo, the factory.json of that
+ * repository's main checkout (or `<path>/factory.json` outside git); otherwise the one every command
+ * reads (FACTORY_DIR's parent, else the main checkout of the cwd's repository).
+ */
+function shareToAllow(repo: string | undefined, env: Env, cwd: string): ShareConfig {
+  let path: string | null;
+  if (repo !== undefined) {
+    const dir = resolve(cwd, repo);
+    if (!existsSync(dir) || !statSync(dir).isDirectory()) throw new UsageError(`--repo ${JSON.stringify(repo)} is not a directory`);
+    const { FACTORY_DIR: _ignored, ...rest } = env;
+    path = factoryJsonPath(rest, dir) ?? join(dir, 'factory.json');
+  } else {
+    path = factoryJsonPath(env, cwd);
+    if (path === null) throw new CliError('not inside a git repository; run from the repository or pass --repo <path>');
+  }
+  const share = readShareConfig(env, path);
+  if (typeof share === 'string') throw new CliError(`nothing to acknowledge: ${share}`);
+  return share;
 }
 
 function usageError(io: Io, message: string): number {

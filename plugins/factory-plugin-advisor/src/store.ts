@@ -6,7 +6,7 @@ import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, renameS
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { Env } from './plugins.ts';
-import { mergeState, newId, occurrenceKey, type ShareConfig, shareConfig, SharedLog } from './shared.ts';
+import { allowed, type Files, mergeState, newId, occurrenceKey, type ShareConfig, shareConfig, SharedLog } from './shared.ts';
 
 export class CliError extends Error {}
 
@@ -133,27 +133,33 @@ export class Store {
   readonly statePath: string;
   readonly draftsDir: string;
 
-  /** The shared log in the remote factory, when factory.json turns sharing on (see shared.ts). */
+  /**
+   * The shared log in the remote factory, when factory.json turns sharing on and the user has
+   * acknowledged that remote (see shared.ts).
+   */
   readonly shared: SharedLog | null;
+  /** The sharing factory.json asks for but the user has not acknowledged: nothing is shared or read. */
+  readonly unacknowledged: ShareConfig | null;
+  /** Owner-only directories and files in the config dir (the config dir checked first). */
+  readonly files: Files;
 
   private readonly others: string[];
 
-  constructor(env: Env, share: ShareConfig | null = null) {
+  constructor(env: Env, share: ShareConfig | null = null, unacknowledged: ShareConfig | null = null) {
     this.dir = configDir(env);
     this.others = otherAdvisorDirs(env);
     this.logPath = join(this.dir, 'occurrences.jsonl');
     this.statePath = join(this.dir, 'state.json');
     this.draftsDir = join(this.dir, 'drafts');
-    this.shared =
-      share === null
-        ? null
-        : new SharedLog(this.dir, share, env, {
-            ensureDir: (dir) => {
-              this.prepare();
-              this.ensureDir(dir);
-            },
-            writeFile: (path, text) => this.writeFile(path, text),
-          });
+    this.unacknowledged = unacknowledged;
+    this.files = {
+      ensureDir: (dir) => {
+        this.prepare();
+        this.ensureDir(dir);
+      },
+      writeFile: (path, text) => this.writeFile(path, text),
+    };
+    this.shared = share === null ? null : new SharedLog(this.dir, share, env, this.files);
   }
 
   /** One line each for stderr: what the shared log could not do (nothing when sharing is off). */
@@ -344,7 +350,9 @@ export class Store {
 
 /**
  * The store for a command run in `cwd`: sharing on when factory.json (FACTORY_DIR's parent, else the
- * main checkout's) sets `"advisor": {"share": true}` and a `remote`; otherwise exactly the local log.
+ * main checkout's) sets `"advisor": {"share": true}` and a `remote`, and the user has acknowledged
+ * that remote (`share allow`); otherwise exactly the local log. factory.json is the repository's, so
+ * on its own it never shares anything nor reads anything shared.
  */
 export function openStore(env: Env, cwd: string): Store {
   let share: ShareConfig | null = null;
@@ -353,6 +361,7 @@ export function openStore(env: Env, cwd: string): Store {
   } catch {
     // no repository, no factory.json: local only
   }
+  if (share !== null && !allowed(configDir(env), share)) return new Store(env, null, share);
   return new Store(env, share);
 }
 

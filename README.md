@@ -156,7 +156,7 @@ Optional. Put a `factory.json` at the repository root and commit it; anything yo
   - **`unsigned_ok`** - `true` turns signing off: state commits are not signed and `merge` checks no signatures, so anyone who can push to the state branch can make a job look approved and have it merged. **Not recommended.** `false` by default; it cannot be combined with `allowed_signers`.
 
   See [Remote factory](#remote-factory), and its Signing section for setting up keys.
-- **`advisor`** - settings for the `factory-plugin-advisor` plugin: `{"share": true}` (the only key, `true` or `false`; `false` by default) shares its redacted friction log and its issue state with the team in an `advisor/` directory on the `remote` state branch. It has no effect without a `remote`. See [factory-plugin-advisor's README](plugins/factory-plugin-advisor/README.md#sharing-with-a-team-opt-in).
+- **`advisor`** - settings for the `factory-plugin-advisor` plugin: `{"share": true}` (the only key, `true` or `false`; `false` by default) shares its redacted friction log and its issue state with the team in an `advisor/` directory on the `remote` state branch, for each user who has acknowledged that remote with `factory-plugin-advisor share allow` (a repository's `factory.json` cannot opt anyone in on its own). It has no effect without a `remote`. See [factory-plugin-advisor's README](plugins/factory-plugin-advisor/README.md#sharing-with-a-team-opt-in).
 
 `factory config` prints the effective settings. Unknown keys and bad values are refused, so a typo cannot silently change the line.
 

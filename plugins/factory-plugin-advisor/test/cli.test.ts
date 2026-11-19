@@ -4,7 +4,7 @@
 // exactly as hooks/hooks.json declares it, from the fresh copy.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -64,12 +64,24 @@ function skillCommands(): string[] {
   return blocks.flatMap((b) => b.split('\n')).map((l) => l.trim()).filter((line) => line.startsWith('npx '));
 }
 
-function sh(command: string, input?: string): { status: number | null; stdout: string; stderr: string } {
-  const result = spawnSync('sh', ['-c', command], { cwd, env, encoding: 'utf8', timeout: 60_000, ...(input === undefined ? {} : { input }) });
+// A repository whose factory.json turns on sharing with a remote factory, for the skill's `share`
+// lines (which only read factory.json and write the acknowledgement; no git runs for them).
+const shareRepo = join(scratch, 'share-repo');
+const shareRemote = join(scratch, 'state.git');
+mkdirSync(shareRepo);
+spawnSync('git', ['init', '-q', '-b', 'main', shareRepo]);
+writeFileSync(join(shareRepo, 'factory.json'), `${JSON.stringify({ remote: { url: shareRemote, branch: 'factory-state' }, advisor: { share: true } })}\n`);
+const shareEnv: NodeJS.ProcessEnv = { ...env, FACTORY_DIR: join(shareRepo, 'factory') };
+
+function sh(command: string, input?: string, shellEnv: NodeJS.ProcessEnv = env): { status: number | null; stdout: string; stderr: string } {
+  const result = spawnSync('sh', ['-c', command], { cwd, env: shellEnv, encoding: 'utf8', timeout: 60_000, ...(input === undefined ? {} : { input }) });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
 const VALUES: Record<string, string> = {
+  path: shareRepo,
+  url: shareRemote,
+  branch: 'factory-state',
   plugin: 'factory-docs',
   kind: 'workaround',
   summary: 'factory-docs stale needed a second run after 2 changed files',
@@ -85,26 +97,28 @@ test('the skill calls the CLI only through the shared npx invocation', () => {
   const commands = skillCommands();
   assert.ok(commands.length >= 8, `expected npx command lines in ${SKILL}`);
   for (const command of commands) assert.ok(command.startsWith(`${INVOCATION} `), command);
-  for (const command of ['record', 'list', 'show', 'suggest', 'file', 'dismiss', '--help', 'stations', 'stations suggest', 'stations apply', 'stations dismiss']) {
+  for (const command of ['record', 'list', 'show', 'suggest', 'file', 'dismiss', '--help', 'stations', 'stations suggest', 'stations apply', 'stations dismiss', 'share list', 'share allow', 'share revoke']) {
     assert.ok(commands.some((c) => c.startsWith(`${INVOCATION} ${command}`)), `the skill runs ${command}`);
   }
   assert.equal(existsSync(join(pluginRoot, 'node_modules')), false);
 });
 
-test('allowed-tools pre-approves record, list, show, suggest, --help, stations and stations suggest, and never file, dismiss or stations apply', () => {
+test('allowed-tools pre-approves record, list, show, suggest, --help, stations, stations suggest and share list, and never file, dismiss, stations apply, share allow or share revoke', () => {
   const line = /^allowed-tools: (.*)$/m.exec(skillText())?.[1] ?? '';
   const rules = [...line.matchAll(/Bash\(([^)]*)\)/g)].map((m) => m[1] ?? '');
   assert.deepEqual(rules, [
     ...['record', 'list', 'show', 'suggest', '--help'].map((c) => `${INVOCATION} ${c}:*`),
     `${INVOCATION} stations --json`,
     `${INVOCATION} stations suggest:*`,
+    `${INVOCATION} share list:*`,
   ]);
   // No rule matches a stations apply or dismiss line (a `:*` rule is a prefix, the others exact).
   const allows = (cmd: string): boolean => rules.some((r) => (r.endsWith(':*') ? cmd.startsWith(r.slice(0, -2)) : cmd === r));
-  for (const cmd of ['stations apply 0123456789ab --confirm --json', 'stations dismiss 0123456789ab --json', 'stations --repo /x apply', 'file abcd --confirm', 'dismiss abcd']) {
+  for (const cmd of ['stations apply 0123456789ab --confirm --json', 'stations dismiss 0123456789ab --json', 'stations --repo /x apply', 'file abcd --confirm', 'dismiss abcd', 'share allow --json', 'share allow --repo /x --json', 'share revoke /x.git factory-state --json', 'share --repo /x allow']) {
     assert.equal(allows(`${INVOCATION} ${cmd}`), false, cmd);
   }
   assert.equal(allows(`${INVOCATION} stations suggest --json`), true);
+  assert.equal(allows(`${INVOCATION} share list --json`), true);
 });
 
 test('every skill command line runs from a fresh copy, in order, and exits 0', () => {
@@ -116,7 +130,8 @@ test('every skill command line runs from a fresh copy, in order, and exits 0', (
   for (const line of skillCommands()) {
     // A station suggestion's <id>: the first one is applied, the second dismissed.
     const command = fill(line, signature).replace('<id>', line.includes(' stations dismiss ') ? (ids[1] ?? '<id>') : (ids[0] ?? '<id>'));
-    const { status, stdout, stderr } = sh(command);
+    // The share lines run against a repository whose factory.json turns sharing on.
+    const { status, stdout, stderr } = sh(command, undefined, command.includes(' share ') ? shareEnv : env);
     assert.equal(status, 0, `${command}\nstderr: ${stderr}`);
     assert.notEqual(stdout, '', command);
     if (command.endsWith(' --help')) assert.match(stdout, new RegExp(`^Usage: ${CLI_NAME} `));
@@ -129,6 +144,8 @@ test('every skill command line runs from a fresh copy, in order, and exits 0', (
       if (command.includes(' stations --json')) assert.equal(value.jobs, 6);
       if (command.includes(' stations suggest ')) ids = value.suggestions.map((s: { id: string }) => s.id);
       if (command.includes(' stations apply ')) assert.equal(value.applied, command.includes('--confirm'));
+      if (command.includes(' share allow ')) assert.deepEqual([value.url, value.branch], [shareRemote, 'factory-state']);
+      if (command.includes(' share revoke ')) assert.deepEqual(value.removed.map((r: { url: string }) => r.url), [shareRemote]);
     }
   }
   assert.equal(ids.length, 2);
