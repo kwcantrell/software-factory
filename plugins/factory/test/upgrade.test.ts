@@ -58,25 +58,26 @@ function fromFixture(r: Repo, commit: string): void {
  * store, reflogs and the index. Anything else in there (a backup dir, a pointer file) is the code
  * under test's doing and stays visible.
  */
-export function isGitVolatile(rel: string): boolean {
+function isGitVolatile(rel: string): boolean {
   const parts = rel.split('/');
   const at = parts.lastIndexOf('.git');
   if (at < 0) return false;
   const inside = parts.slice(at + 1);
   const name = inside[inside.length - 1] ?? '';
-  return name.endsWith('.lock') || name === 'index' || inside[0] === 'objects' || inside[0] === 'logs' ||
+  return name.endsWith('.lock') || (name === 'index' && inside.length === 1) || inside[0] === 'objects' || inside[0] === 'logs' ||
     (inside[0] === 'worktrees' && (inside[2] === 'logs' || inside[2] === 'index'));
 }
 
 /** Every file under dir (worktrees' .git pointers included) and its content, minus git's own volatile files. */
-export function snapshot(dir: string): Map<string, string> {
+function snapshot(dir: string): Map<string, string> {
   const out = new Map<string, string>();
   const walk = (d: string): void => {
     for (const name of readdirSync(d)) {
       const p = join(d, name);
       const rel = relative(dir, p);
       if (statSync(p).isDirectory()) {
-        if (!isGitVolatile(`${rel}/x`) || rel.split('/').pop() === '.git') walk(p);
+        // Skip a directory only when everything inside it is git-volatile (.git itself is always walked).
+        if (!isGitVolatile(`${rel}/x`)) walk(p);
       } else if (!isGitVolatile(rel)) out.set(rel, readFileSync(p, 'latin1'));
     }
   };
@@ -554,9 +555,9 @@ test('a git maintenance lock appearing and vanishing between snapshots does not 
   const dir = claudeDir(r);
   const path = join(dir, 'settings.json');
   writeFileSync(path, `{"enabledPlugins": {"${OLD_KEY}": true},}\n`);
-  const before = snapshot(r.tmp);
   const lock = join(r.repo, '.git', 'objects', 'maintenance.lock');
   writeFileSync(lock, '');
+  const before = snapshot(r.tmp);
   upgrade(r, ['--apply'], 1);
   rmSync(lock);
   assert.deepEqual(snapshot(r.tmp), before);
