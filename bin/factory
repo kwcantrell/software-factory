@@ -267,7 +267,7 @@ def cmd_spec(root, a):
 
 
 def cmd_approve(root, a):
-    """A human gate. hooks/human-gate.sh makes Claude Code ask before this runs."""
+    """A human gate. scripts/human-gate.sh makes Claude Code ask before this runs."""
     with editing(root, a.job) as job:
         if job["stage"] != "intake" or job.get("spec") != "pending":
             raise Refused(f"{job['id']} has no spec waiting for approval")
@@ -380,7 +380,7 @@ def drop_worktree(job, keep_branch):
 
 
 def cmd_merge(root, a):
-    """The human gate. hooks/human-gate.sh makes Claude Code ask before this runs."""
+    """The human gate. scripts/human-gate.sh makes Claude Code ask before this runs."""
     with editing(root, a.job) as job:
         require_stage(job, "ship")
         main = main_checkout()
