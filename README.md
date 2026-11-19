@@ -36,6 +36,39 @@ git clone https://github.com/kwcantrell/software-factory
 claude --plugin-dir ./software-factory/plugins/factory   # or load it for one session without installing
 ```
 
+### Upgrading from an older version
+
+Repositories that used the original plugin (`factory@kwcantrell-plugins`, from the
+`kwcantrell/kwcantrell-plugins` marketplace) or `factory@software-factory` 0.2.0 (both ran a Python
+CLI) switch over with one skill, run from the repository:
+
+```
+/factory:upgrade
+```
+
+It runs `factory upgrade`, a dry run that writes nothing, and shows the plan in three groups:
+
+- **settings**: in `.claude/settings.json` (project) and `.claude/settings.local.json` (local), an
+  `enabledPlugins` key `factory@<any marketplace but software-factory>` becomes
+  `factory@software-factory`, keeping its true/false value, and `extraKnownMarketplaces` gains
+  `software-factory` where it declared the old marketplace. Other plugins and marketplaces
+  (`base-setup@kwcantrell-plugins`, say) stay. User settings (`$CLAUDE_CONFIG_DIR/settings.json`,
+  else `~/.claude/settings.json`) change only with `--scope user`, which the skill asks about
+  separately;
+- **runtime dir**: in `factory/`, each `job.json` gains the fields the current CLI writes that it
+  lacks (`followups: []` for the oldest jobs; existing values never change), `index.html` becomes
+  the current dashboard, `.gitignore` is ensured and the old `.lock` file goes. The originals are
+  copied to `factory/upgrade-backup-<time>/` first. Jobs in progress keep their worktree and branch;
+- **manual steps**, never done for you: `factory.json` keys the current CLI refuses, tracked files
+  that still name the old plugin or CLI (file:line), and the `claude plugin install` /
+  `claude plugin uninstall` commands to run per scope, then `/reload-plugins`.
+
+The skill asks before running `factory upgrade --apply`, and checks the result with a last dry run
+that should report `nothing to do`. By hand: `factory upgrade [--repo <path>] [--apply] [--scope
+project|local|user ...] [--json]`; it exits 0 when current or applied, 1 when it refuses (a file
+that does not parse, a factory command still holding the lock) and 2 on a usage error or outside a
+git checkout.
+
 ## Use
 
 ```
@@ -128,11 +161,12 @@ plugins/factory/                           the plugin
   skills/approve                           human spec gate (user-invoked only)
   skills/ship                              human merge gate (user-invoked only)
   skills/dashboard                         start the dashboard server
+  skills/upgrade                           move a repo from an older factory plugin (factory upgrade)
   agents/                                  builder, verifier, reviewer-{security,standards,behavior}
   src/                                     the CLI: state machine, gates, dashboard server
   hooks/hooks.json, src/human-gate.ts      human-gate hook (merge, spec approval, rework)
   dashboard/index.html                     the dashboard
-  test/                                    node:test suites (CLI, npx, hook, dashboard, compatibility)
+  test/                                    node:test suites (CLI, npx, hook, dashboard, compatibility, upgrade)
 plugins/factory-plugin-builder/            builds plugins for this marketplace: new, check (the CLI convention), verify
 plugins/factory-dev/                       develops this repo: check (every CI gate), release (tag/version check, notes)
 templates/plugin/                          the template `npm run new-plugin -- <name>` copies (not in the marketplace)

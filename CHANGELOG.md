@@ -6,6 +6,16 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added
+
+- `factory upgrade` and the `/factory:upgrade` skill move a repository from an older factory (the
+  original `factory@kwcantrell-plugins` plugin, or `factory@software-factory` 0.2.0 with the
+  Python CLI) to this version: Claude Code settings switch to `factory@software-factory` (user
+  settings only with `--scope user`), the `factory/` dir gets the job fields, dashboard and
+  `.gitignore` the current CLI writes (originals backed up first), and what it cannot change
+  safely is listed as manual steps, including the `claude plugin` commands to run. It is a dry run
+  unless `--apply` is given, and the skill asks before applying.
+
 ### Changed
 
 - The `factory` CLI is now TypeScript, run through `npx` from the installed plugin
