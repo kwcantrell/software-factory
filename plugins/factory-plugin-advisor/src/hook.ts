@@ -12,7 +12,7 @@
 // CLI's own error message; never the command line or the command's stdout.
 import { record } from './advisor.ts';
 import { marketplacePlugins, type Env } from './plugins.ts';
-import { cleanSummary, identityOf, type Identity, NO_IDENTITY } from './redact.ts';
+import { cleanSummary, type Identity, NO_IDENTITY } from './redact.ts';
 import { Store } from './store.ts';
 import { quickReject } from './hook-filter.ts';
 
@@ -122,7 +122,7 @@ export function failureSummary(f: CliFailure): string {
  * The whole hook: parse the input, record the failure if it is one. Swallows every error, because a
  * hook that fails shows a notice in the conversation; losing one occurrence is the better outcome.
  */
-export function handleHookInput(raw: string, env: Env, pluginRoot: string, now: Date, identity: Identity = identityOf(env)): CliFailure | null {
+export function handleHookInput(raw: string, env: Env, pluginRoot: string, now: Date, identity: Identity = NO_IDENTITY): CliFailure | null {
   try {
     if (quickReject(raw)) return null;
     const { bins, plugins } = marketplacePlugins(pluginRoot, env);

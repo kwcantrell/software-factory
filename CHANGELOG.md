@@ -106,6 +106,13 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   unmerged paths is reported as "conflicts - the branch needs a rebase"; any other failure (a
   missing git identity, a hook, a lock) escalates with git's own error text as the reason in
   `job.json` and on the dashboard.
+- `factory-plugin-advisor` no longer masks the current username as a word when it is also a word
+  the advisor writes itself: a marketplace plugin or CLI bin name (such as `factory` or
+  `factory-dev`) or a `factory` subcommand (such as `proof` or `merge`), compared ignoring case.
+  For a user named `factory`, `factory proof exited 1` used to be stored as `[user] proof exited 1`,
+  with a different signature than on any other machine. Home paths, `$HOME`, emails and mentions
+  are still masked, and `file` still refuses a draft that holds one. Only the CLI itself reads the
+  OS user now; the library functions default to no identity.
 
 ### Security
 

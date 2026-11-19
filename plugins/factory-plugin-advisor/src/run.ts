@@ -17,7 +17,7 @@ import {
 } from './advisor.ts';
 import { fileIssue, type FileResult } from './file.ts';
 import { handleHookInput } from './hook.ts';
-import { type Env, marketplacePlugins, ownRoot } from './plugins.ts';
+import { type Env, marketplacePlugins, ownRoot, reservedNames } from './plugins.ts';
 import { identityOf, osIdentity, type SystemIdentity } from './redact.ts';
 import { Store } from './store.ts';
 
@@ -201,7 +201,9 @@ export function run(argv: readonly string[], io: Io): number {
   const env = io.env ?? process.env;
   const now = (): Date => (io.now ?? (() => new Date()))();
   const pluginRoot = io.pluginRoot ?? ownRoot();
-  const identity = identityOf(env, io.system ?? osIdentity());
+  // The only place the OS identity is read; a username that names a plugin, bin or factory command
+  // is not masked as a word.
+  const identity = identityOf(env, io.system ?? osIdentity(), reservedNames(marketplacePlugins(pluginRoot, env)));
   const [command, ...rest] = positionals;
   if (command === undefined) return usageError(io, 'missing command');
   const allowed = COMMAND_OPTIONS[command];

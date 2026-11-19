@@ -3,7 +3,7 @@
 // secrets themselves, only text that might contain them. Over-redacting is the safe failure.
 import { createHash } from 'node:crypto';
 import { homedir, userInfo } from 'node:os';
-import type { Env } from './plugins.ts';
+import { type Env, reservedNames } from './plugins.ts';
 
 export const REDACTED = '[redacted]';
 export const SUMMARY_MAX = 200;
@@ -221,8 +221,14 @@ export function osIdentity(): SystemIdentity {
   return out;
 }
 
-/** `$HOME`, `$USER`, `$USERNAME` and the OS's view of the current user. */
-export function identityOf(env: Env, system: SystemIdentity = osIdentity()): Identity {
+/**
+ * `$HOME`, `$USER`, `$USERNAME` and the OS's view of the current user. Only `run()` passes
+ * `osIdentity()`; the default is no OS identity, so nothing below it reads the real user by accident.
+ * A username equal (ignoring case) to a `reserved` name (a marketplace plugin, bin or `factory`
+ * subcommand: words the advisor writes itself) or a common word is not masked as a whole word; its
+ * home directory still is.
+ */
+export function identityOf(env: Env, system: SystemIdentity = {}, reserved: ReadonlySet<string> = reservedNames()): Identity {
   const homes = new Set<string>();
   for (const h of [env.HOME, system.homedir]) {
     const home = (h ?? '').replace(/[\\/]+$/, '');
@@ -231,7 +237,9 @@ export function identityOf(env: Env, system: SystemIdentity = osIdentity()): Ide
   }
   const users = new Set<string>();
   for (const u of [system.username, env.USER, env.USERNAME]) {
-    if (u !== undefined && [...u].length >= 3 && !COMMON_USERS.has(u.toLowerCase()) && !/\s/.test(u)) users.add(u);
+    if (u === undefined || [...u].length < 3 || /\s/.test(u)) continue;
+    const lower = u.toLowerCase();
+    if (!COMMON_USERS.has(lower) && !reserved.has(lower)) users.add(u);
   }
   const byLength = (a: string, b: string): number => b.length - a.length;
   return { homes: [...homes].sort(byLength), users: [...users].sort(byLength) };

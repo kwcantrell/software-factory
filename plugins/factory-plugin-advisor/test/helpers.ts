@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { run } from '../src/run.ts';
 import type { Env } from '../src/plugins.ts';
+import type { SystemIdentity } from '../src/redact.ts';
 
 export const PLUGIN_ROOT = fileURLToPath(new URL('..', import.meta.url));
 export const FIXTURES = fileURLToPath(new URL('./fixtures/', import.meta.url));
@@ -18,7 +19,8 @@ export interface Sandbox {
   cleanup: () => void;
 }
 
-export function sandbox(extraEnv: Env = {}, pluginRoot: string = PLUGIN_ROOT): Sandbox {
+/** `system` is the fake OS identity run() sees (Io.system); the real user is never read. */
+export function sandbox(extraEnv: Env = {}, pluginRoot: string = PLUGIN_ROOT, system: SystemIdentity = {}): Sandbox {
   const dir = mkdtempSync(join(tmpdir(), 'factory-plugin-advisor-test-'));
   const config = join(dir, 'config', 'factory-plugin-advisor');
   const env: Env = { HOME: join(dir, 'home'), PATH: process.env.PATH, FACTORY_PLUGIN_ADVISOR_CONFIG_DIR: config, ...extraEnv };
@@ -35,7 +37,7 @@ export function sandbox(extraEnv: Env = {}, pluginRoot: string = PLUGIN_ROOT): S
       now: () => now,
       pluginRoot,
       // Only the sandbox's own HOME/USER count as the current user, never whoever runs the tests.
-      system: {},
+      system,
     });
     return { code, stdout, stderr };
   };

@@ -3,7 +3,7 @@
 // them), and for home-dir usernames, emails and linkable mentions; the body goes to gh on stdin and the title as one argv element, with no shell in between.
 import { spawnSync } from 'node:child_process';
 import { draftFields, FIELD_LINES, issues, MARKETPLACE_REPO, resolveSignature, UsageError } from './advisor.ts';
-import { containsPersonal, containsSecret, identityOf, type Identity, redact } from './redact.ts';
+import { containsPersonal, containsSecret, type Identity, NO_IDENTITY, redact } from './redact.ts';
 import { CliError, type Occurrence, type Store } from './store.ts';
 import type { Env } from './plugins.ts';
 
@@ -80,7 +80,7 @@ export function withoutPluginName(text: string, plugin: string): string {
  * plugin's name are taken out, or `[0]` when only text that spans lines (a PEM key) does. Empty when
  * the draft may be filed.
  */
-export function draftSecrets(text: string, plugin: string, occurrences: readonly Occurrence[], identity: Identity = identityOf(process.env)): number[] {
+export function draftSecrets(text: string, plugin: string, occurrences: readonly Occurrence[], identity: Identity = NO_IDENTITY): number[] {
   const rest = withoutPluginName(withoutFields(text, draftFields(plugin, occurrences, identity)), plugin);
   const lines = secretLines(rest);
   if (lines.length > 0) return lines;
@@ -92,7 +92,7 @@ export function draftSecrets(text: string, plugin: string, occurrences: readonly
  * home), an email address or a mention GitHub would link. The whole draft is checked, stored fields
  * included: `renderDraft` masks them, so one that still holds such a detail was edited in.
  */
-export function draftPersonal(text: string, identity: Identity = identityOf(process.env)): number[] {
+export function draftPersonal(text: string, identity: Identity = NO_IDENTITY): number[] {
   return text
     .split('\n')
     .map((line, i) => (containsPersonal(line, identity) ? i + 1 : 0))
@@ -108,7 +108,7 @@ export function secretLines(text: string): number[] {
 }
 
 export function fileIssue(store: Store, wanted: string, options: { repo?: string; confirm: boolean; env: Env; identity?: Identity }): FileResult {
-  const identity = options.identity ?? identityOf(options.env);
+  const identity = options.identity ?? NO_IDENTITY;
   const repo = options.repo ?? MARKETPLACE_REPO;
   if (!REPO.test(repo)) throw new UsageError(`--repo must be <owner>/<name>, got ${JSON.stringify(repo)}`);
   const state = store.state();
