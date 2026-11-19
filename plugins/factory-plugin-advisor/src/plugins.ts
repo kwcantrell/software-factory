@@ -22,6 +22,7 @@ export const FALLBACK_PLUGINS = [
   'factory-plugin-advisor',
   'factory-plugin-builder',
   'factory-plugin-discover',
+  'factory-signing',
 ] as const;
 
 /**
