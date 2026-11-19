@@ -1,0 +1,17 @@
+{
+  "name": "software-factory",
+  "owner": {
+    "name": "Kalen Cantrell"
+  },
+  "metadata": {
+    "description": "Software Factory: a Claude Code plugin that runs work through a multi-agent assembly line"
+  },
+  "plugins": [
+    {
+      "name": "factory",
+      "source": "./",
+      "description": "Software Factory: a multi-agent line with isolated builds, independent proof, three reviewers and a human merge gate",
+      "license": "MIT"
+    }
+  ]
+}
