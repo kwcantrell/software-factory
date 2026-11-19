@@ -206,7 +206,6 @@ export const REGISTRY: readonly VersionEntry[] = [
         down: refused(
           'an unfinished job that records it is refused: the target would merge whatever the branch holds. Finish the job first (merge or close it), or stay on this version; a finished job keeps nothing to protect, and migrate removes the field',
         ),
-        pending: '028',
       },
       {
         area: 'requirement',
@@ -223,9 +222,8 @@ export const REGISTRY: readonly VersionEntry[] = [
         name: 'recorded-commit',
         op: 'added',
         what: 'merge merges only the commit proof and review passed (028)',
-        up: manual('in a remote factory with signing, merge refuses a job at ship without a recorded commit: send it back with factory rework (a person), then factory built records it'),
+        up: manual('in a remote factory with signing on, merge refuses a job built by an older factory (no recorded commit): a person sends it back with factory rework, then the builder runs factory built again, which records the commit and sends it through proof and review'),
         down: refused('recorded commits protect merges; see job.json head'),
-        pending: '028',
       },
       ...sections('builder', ['doctor'], DOCTOR_UP, DOCTOR_DOWN, 'the factory-doctor check runs first (030)'),
       ...sections('verifier', ['doctor'], DOCTOR_UP, DOCTOR_DOWN, 'the factory-doctor check runs first (030)'),
