@@ -130,7 +130,7 @@ test('migrate-repo --help lists its options; --versions prints the version table
   const help = r.ok(['migrate-repo', '--help']);
   assert.match(help, /^usage: factory migrate-repo \[-h\] \[--from FROM\] \[--to TO\] \[--repo REPO\] \[--apply\] \[--scope \{project,local,user\}\] \[--versions\]/);
   const versions = JSON.parse(r.ok(['migrate-repo', '--versions']));
-  assert.deepEqual(versions.map((v: { id: string }) => v.id), ['kwcantrell', '0.2.0', '0.3.0', '0.3.1', '0.4.0', 'unreleased']);
+  assert.deepEqual(versions.map((v: { id: string }) => v.id), ['kwcantrell', '0.2.0', '0.3.0', '0.3.1', '0.4.0', '0.5.0', 'unreleased']);
   const current = versions.at(-1);
   assert.deepEqual([...current.config_keys].sort(), Object.keys(JSON.parse(r.ok(['config']))).sort(), 'unreleased = what this CLI accepts');
 }));

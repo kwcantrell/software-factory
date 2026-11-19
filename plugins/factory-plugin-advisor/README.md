@@ -372,4 +372,4 @@ and the diff, and changes nothing. `stations apply <id> --confirm`:
 
 ## Versioning
 
-Every plugin in this marketplace carries the same version, the repository's. `CHANGELOG.md` lists what changed in each release. A patch release carries fixes only.
+Every plugin in this marketplace carries the same version, the repository's. `CHANGELOG.md` lists what changed in each release. A minor release (such as 0.4.0 to 0.5.0) adds features; a patch release carries fixes only.

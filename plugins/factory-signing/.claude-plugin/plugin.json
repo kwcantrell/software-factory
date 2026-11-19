@@ -1,6 +1,6 @@
 {
   "name": "factory-signing",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Makes every git commit Claude makes signed with your own SSH key through your ssh-agent: diagnoses what is missing, sets git up only when you confirm, prints your allowed-signers line, and a hook that stops unsigned commits in repos that require signing",
   "author": {
     "name": "Kalen Cantrell"

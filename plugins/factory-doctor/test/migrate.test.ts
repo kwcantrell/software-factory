@@ -12,7 +12,7 @@ import { dirname, join, relative } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import type { Env } from '../src/claude.ts';
-import { installedAt } from '../src/migrate.ts';
+import { installedAt, type Step } from '../src/migrate.ts';
 import { entry, LATEST, REGISTRY, stateOf } from '../src/registry.ts';
 import { run } from '../src/run.ts';
 
@@ -108,7 +108,9 @@ test("registry: the factory CLI's migrate-repo knows the same versions, keys and
 test('an install resolves to a registry version by its release commit, else by its version', () => {
   assert.equal(installedAt('0.4.0', V040, 'software-factory'), '0.4.0');
   assert.equal(installedAt('0.4.0', null, 'software-factory'), '0.4.0');
-  assert.equal(installedAt('0.4.0', 'f'.repeat(40), 'software-factory'), 'unreleased');
+  assert.equal(installedAt('0.4.0', 'f'.repeat(40), 'software-factory'), '0.4.0');
+  assert.equal(installedAt('0.5.0', null, 'software-factory'), '0.5.0');
+  assert.equal(installedAt('0.5.0', 'f'.repeat(40), 'software-factory'), 'unreleased');
   assert.equal(installedAt('0.3.1', null, 'software-factory'), '0.3.1');
   assert.equal(installedAt('9.9.9', null, 'software-factory'), null);
   assert.equal(installedAt('0.1.0', null, 'kwcantrell-plugins'), 'kwcantrell');
@@ -370,8 +372,24 @@ test('a project agent without the doctor section is a manual step pointing to /f
   const { code, stdout } = await b.migrate([]);
   assert.equal(code, 0);
   assert.match(stdout, /\[manual\] \.claude\/agents\/factory-builder\.md: project agents of this station fail `factory agents check`.*run \/factory:agents, or `factory agents new builder --force`/);
-  assert.match(stdout, /why: fixed section 'doctor': the factory-doctor check runs first \(030\) \(unreleased\)/);
+  assert.match(stdout, /why: fixed section 'doctor': the factory-doctor check runs first \(030\) \(0\.5\.0\)/);
   assert.doesNotMatch(stdout, /factory-reviewer-security\.md: project agents/, 'reviewers gained no section');
+}));
+
+test('the release 0.5.0: --to 0.5.0 plans the repo steps --to unreleased does, while [Unreleased] adds nothing', box(async (b) => {
+  assert.deepEqual(stateOf('0.5.0'), stateOf('unreleased'), 'the [Unreleased] entry adds nothing yet');
+  b.install({ 'factory@software-factory': { version: '0.4.0', sha: V040 }, 'factory-doctor@software-factory': { version: '0.4.0', sha: V040 } });
+  mkdirSync(join(b.repo, '.claude', 'agents'), { recursive: true });
+  writeFileSync(join(b.repo, '.claude', 'agents', 'factory-builder.md'), '---\nname: factory-builder\n---\n<!-- fixed:handoff -->x<!-- /fixed -->\n');
+  const plans = await Promise.all(['0.5.0', 'unreleased'].map(async (to) => {
+    const { code, stdout, stderr } = await b.migrate(['--json', '--to', to]);
+    assert.equal(code, 0, stderr);
+    return JSON.parse(stdout) as { direction: string; steps: Step[] };
+  }));
+  const [at050, latest] = plans as [{ direction: string; steps: Step[] }, { direction: string; steps: Step[] }];
+  assert.equal(at050.direction, 'upgrade');
+  assert.deepEqual(at050.steps.filter((s) => s.kind !== 'plugin'), latest.steps.filter((s) => s.kind !== 'plugin'));
+  assert.ok(at050.steps.some((s) => s.kind === 'manual' && s.why.endsWith('(0.5.0)')), JSON.stringify(at050.steps));
 }));
 
 test('after the plugins are updated, the repo still gets its own manual steps (an agent without the doctor section, remote signing)', box(async (b) => {

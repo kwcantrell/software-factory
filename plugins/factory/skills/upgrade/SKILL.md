@@ -16,7 +16,8 @@ npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factor
 `factory-doctor migrate`, with the command to run, and exits 2. This skill does the same.
 
 1. Tell the user that upgrading (or downgrading) a repo between software-factory versions is now
-   `factory-doctor migrate`, run by the **factory-doctor** skill: it shows a dry run first, asks
+   `factory-doctor migrate` (to the latest version unless `--to <version>` names one), run by the
+   **factory-doctor** skill: it shows a dry run first, asks
    before `--apply`, asks again before `--scope user`, and asks separately before it updates the
    plugins.
 2. If the factory-doctor skill is available, follow it for the migration. If it is not, tell the

@@ -166,10 +166,11 @@ export const REGISTRY: readonly VersionEntry[] = [
     ],
   },
   {
-    id: 'unreleased',
-    label: 'the [Unreleased] changes after 0.4.0',
-    plugin_version: '0.4.0',
+    id: '0.5.0',
+    label: '0.5.0, the remote factory and factory-doctor',
+    plugin_version: '0.5.0',
     marketplace: 'software-factory',
+    tag: 'v0.5.0',
     changes: [
       {
         area: 'factory.json',
@@ -238,6 +239,13 @@ export const REGISTRY: readonly VersionEntry[] = [
       plugin('factory-doctor'),
       plugin('factory-signing'),
     ],
+  },
+  {
+    id: 'unreleased',
+    label: 'the [Unreleased] changes after 0.5.0',
+    plugin_version: '0.5.0',
+    marketplace: 'software-factory',
+    changes: [],
   },
 ];
 

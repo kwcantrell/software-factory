@@ -189,7 +189,7 @@ never removes one. With `--json`, every form prints one JSON value.
 ### The registry
 
 `src/registry.ts` holds one entry per version a repo can be at, oldest first: `kwcantrell` (the
-original plugin), `0.2.0`, `0.3.0`, `0.3.1`, `0.4.0` and `unreleased` (the `[Unreleased]` changes of
+original plugin), `0.2.0`, `0.3.0`, `0.3.1`, `0.4.0`, `0.5.0` and `unreleased` (the `[Unreleased]` changes of
 `CHANGELOG.md`, carrying the repo version). Each entry lists what moving to it changes in a repo
 (`factory.json` keys, `job.json` fields, station-template fixed sections, requirements such as
 remote signing, the doctor file format, the marketplace's plugins), each with its `up` and `down`
@@ -206,8 +206,8 @@ section or a plugin, or adds a requirement or a doctor file format: add a `Chang
 `unreleased` row of `VERSIONS` in `plugins/factory/src/upgrade.ts`, and teach the plumbing the
 downgrade when the target cannot read it). Mark a change whose job is not merged yet with `pending:
 '<job>'`, and drop the mark once it lands (the test says so). At a release, rename `unreleased` to
-the new version (with its `tag` and `commit` once tagged, here and in `VERSIONS`) and start a new
-`unreleased` entry when there are new changes.
+the new version, here and in `VERSIONS` (with its `tag`, and its `commit` once tagged), and start a
+new, empty `unreleased` entry carrying the new version, whose keys and fields equal the release's.
 
 ## The skill
 
