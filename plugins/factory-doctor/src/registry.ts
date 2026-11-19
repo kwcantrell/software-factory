@@ -238,7 +238,7 @@ export const REGISTRY: readonly VersionEntry[] = [
         down: auto('kept as it is: nothing in the target reads it'),
       },
       plugin('factory-doctor'),
-      plugin('factory-signing', '029'),
+      plugin('factory-signing'),
     ],
   },
 ];
