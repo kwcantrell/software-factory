@@ -469,13 +469,13 @@ export function load(root: string, jobId: string): Job {
   return job;
 }
 
+/** A full commit hash, SHA-1 or SHA-256. */
+const SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
+
 /**
  * The fields commands and listings read, checked to be the types the CLI writes. The dashboard's
  * `jobProblem` (dashboard/index.html) is a copy of these rules: change both together.
  */
-/** A full commit hash, SHA-1 or SHA-256. */
-const SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
-
 function checkJob(where: string, jobId: string, data: unknown): Job {
   const bad = (what: string): Refused => new Refused(`${where} is not a job record the factory wrote: ${what}; fix or remove it`);
   const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
