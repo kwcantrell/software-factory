@@ -206,6 +206,27 @@ test('remote config: valid values load, bad shapes and unknown sub-keys are refu
   assert.deepEqual(readdirSync(join(r.fdir, 'jobs')), [], 'a refused config creates no job');
 }));
 
+test('advisor config: {"share": true|false} loads; other shapes and sub-keys are refused', withRepo((r) => {
+  const cfg = join(r.repo, 'factory.json');
+  assert.deepEqual(JSON.parse(r.ok(['config'])).advisor, { share: false }, 'off by default');
+  writeFileSync(cfg, JSON.stringify({ advisor: { share: true } }));
+  assert.deepEqual(JSON.parse(r.ok(['config'])).advisor, { share: true });
+  const bad: [unknown, RegExp][] = [
+    [true, /'advisor' must be an object like \{"share": true\}/],
+    [null, /'advisor' must be an object/],
+    [[], /'advisor' must be an object/],
+    [{}, /'advisor\.share' must be true or false/],
+    [{ share: 'yes' }, /'advisor\.share' must be true or false/],
+    [{ share: true, identity: true }, /'advisor' has unknown key 'identity' \(known: share\)/],
+  ];
+  for (const [value, message] of bad) {
+    writeFileSync(cfg, JSON.stringify({ advisor: value }));
+    const q = r.factory(['config']);
+    assert.equal(q.status, 1, `${JSON.stringify(value)}: ${q.stdout}${q.stderr}`);
+    assert.match(q.stderr, message, JSON.stringify(value));
+  }
+}));
+
 // ---------------------------------------------------------------- 2. state checkout
 
 test('init creates an orphan state branch in the project repo itself, and attaches to it', withRepo((r) => {
@@ -232,6 +253,39 @@ test('init refuses a branch that holds anything but factory state, and leaves jo
   // main holds only a README.md, but not the state branch's own README.
   assert.match(p.stderr, /branch 'main' of .* does not hold factory state \(it has README\.md\)/);
   assert.deepEqual(readdirSync(join(r.fdir, 'jobs')), []);
+}));
+
+test('an advisor/ directory on the state branch (factory-plugin-advisor sharing) is accepted and never taken for a job', withWorld((w) => {
+  const ann = new Person(w, 'Ann');
+  ann.ok(['init']);
+  const id = ann.newJob('Before the advisor');
+  // What factory-plugin-advisor pushes: a commit adding advisor/occurrences.jsonl and advisor/state.json.
+  const seed = join(w.tmp, 'advisor-seed');
+  git(['clone', '-q', '--branch', BRANCH, w.state, seed], w.tmp, ann.env);
+  mkdirSync(join(seed, 'advisor'));
+  writeFileSync(join(seed, 'advisor', 'occurrences.jsonl'), '{"signature":"0123456789ab"}\n');
+  writeFileSync(join(seed, 'advisor', 'state.json'), '{"version":1,"issues":{}}\n');
+  git(['add', 'advisor'], seed, ann.env);
+  git(['commit', '-q', '-m', 'factory-plugin-advisor: record 1 occurrence'], seed, ann.env);
+  git(['push', '-q', 'origin', `HEAD:${BRANCH}`], seed, ann.env);
+  // Bob clones it, Ann pulls it into a checkout with local commits of her own; both keep working.
+  const bob = new Person(w, 'Bob');
+  bob.ok(['init']);
+  assert.ok(existsSync(join(bob.jobs, 'advisor', 'occurrences.jsonl')));
+  const second = bob.newJob('After the advisor');
+  ann.ok(['note', id, 'still mine']);
+  assert.deepEqual(JSON.parse(ann.ok(['status', '--json'])).map((j: { id: string }) => j.id).sort(), [id, second].sort());
+  assert.ok(existsSync(join(ann.jobs, 'advisor', 'state.json')));
+  ann.assertInSync(w);
+  // A plain file named advisor is still not factory state.
+  rmSync(seed, { recursive: true, force: true });
+  git(['clone', '-q', '--branch', BRANCH, w.state, seed], w.tmp, ann.env);
+  git(['rm', '-q', '-r', 'advisor'], seed, ann.env);
+  writeFileSync(join(seed, 'advisor'), 'not a directory\n');
+  git(['add', 'advisor'], seed, ann.env);
+  git(['commit', '-q', '-m', 'odd'], seed, ann.env);
+  git(['push', '-q', 'origin', `HEAD:${BRANCH}`], seed, ann.env);
+  bob.refused(['note', second, 'x'], /does not hold factory state \(it has advisor\)/);
 }));
 
 test('init clones an existing state branch; worktrees are never part of it', withWorld((w) => {

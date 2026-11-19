@@ -60,9 +60,11 @@ anything, `*` and `?` stay within one path segment, everything else is literal. 
 moves, or a new doc or plugin is added, update the map in the same change; `lint` says what is
 missing. In this repo each plugin's README covers its `src/**`, `package.json` and
 `.claude-plugin/plugin.json`, plus its `hooks/**` when it has hooks (`factory-plugin-advisor`; the
-`factory` plugin's hooks are covered by the root `README.md`), and each SKILL.md covers the CLI
+`factory` plugin's hooks are covered by the root `README.md`), and any other plugin's code it
+describes (the `factory-plugin-advisor` README also covers `plugins/factory/src/remote.ts`, which
+accepts its shared `advisor/` directory on the state branch), and each SKILL.md covers the CLI
 code it calls (the `factory-plugin-advisor` skill, for example, covers `run.ts`, `advisor.ts`,
-`file.ts`, and `stations.ts` and `station-drafts.ts` for its `stations` commands). `CLAUDE.md`
+`file.ts`, `shared.ts`, and `stations.ts` and `station-drafts.ts` for its `stations` commands). `CLAUDE.md`
 covers the `factory` sources whose conventions it states (`factory.ts`, `remote.ts`, `gate.ts`,
 `agents.ts`). The `factory` station templates (`plugins/factory/templates/agents/*.md`) are docs
 too: each covers `src/agents.ts`, which checks agents against it, and the shipped agent that must

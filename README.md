@@ -141,7 +141,8 @@ Optional. Put a `factory.json` at the repository root and commit it; anything yo
   "max_proof_attempts": 3,
   "spec_gate": false,
   "specs_dir": null,
-  "remote": null
+  "remote": null,
+  "advisor": {"share": false}
 }
 ```
 
@@ -151,6 +152,7 @@ Optional. Put a `factory.json` at the repository root and commit it; anything yo
 - **`specs_dir`** - the repo-relative directory where the project keeps living behavior specs (say `"docs/specs"`), or `null` if it keeps none. When set, intake reads the specs a change touches, lists them in `task.md`, and gives each one whose behavior changes an acceptance criterion to update it in the same job. Unset by default.
 
 - **`remote`** - share the job state with your team through a git remote: `{"url": "<git url or path>", "branch": "<branch>"}`, both required and nothing else allowed; `null` (the default) keeps the factory local. `url` is anything `git clone` accepts except a `<helper>::` transport or a value starting with `-`; a path starting with `./` or `../` is relative to `factory.json`'s directory. `branch` is a plain branch name such as `"factory-state"`. See [Remote factory](#remote-factory).
+- **`advisor`** - settings for the `factory-plugin-advisor` plugin: `{"share": true}` (the only key, `true` or `false`; `false` by default) shares its redacted friction log and its issue state with the team in an `advisor/` directory on the `remote` state branch. It has no effect without a `remote`. See [factory-plugin-advisor's README](plugins/factory-plugin-advisor/README.md#sharing-with-a-team-opt-in).
 
 `factory config` prints the effective settings. Unknown keys and bad values are refused, so a typo cannot silently change the line.
 
@@ -183,7 +185,7 @@ By default the factory is private to one checkout: everything lives in the gitig
 
 Then each person runs `factory init`. The first creates the branch (an orphan with only a README, so it shares no history with the code) and pushes it; everyone else clones it. The state checkout is the factory dir's `jobs/` directory itself (`factory/jobs/`, a git checkout of the branch), so job dirs keep their paths and the dashboard works unchanged.
 
-**What is stored.** One directory per job at the top of the branch: `job.json`, the station markdown files (`task.md`, `build.md`, `proof.md`, reviews, `ship.md`, `rework-*.md`) and `evidence/`, plus a README. Never the builders' worktrees: they stay in `factory/worktrees/`, outside the state checkout, and only reach others through the job's code branch (`factory/<id>`), which is pushed to the code remote like any branch. **A public remote makes every job's content public**: the tasks, reviews and follow-ups. Use a private repo unless that is what you want.
+**What is stored.** One directory per job at the top of the branch: `job.json`, the station markdown files (`task.md`, `build.md`, `proof.md`, reviews, `ship.md`, `rework-*.md`) and `evidence/`, plus a README, and with `advisor.share` on, factory-plugin-advisor's `advisor/` directory (never a job). Never the builders' worktrees: they stay in `factory/worktrees/`, outside the state checkout, and only reach others through the job's code branch (`factory/<id>`), which is pushed to the code remote like any branch. **A public remote makes every job's content public**: the tasks, reviews and follow-ups. Use a private repo unless that is what you want.
 
 **Trust.** Whoever can push to the state branch writes what your commands read, so the CLI accepts only what it writes itself: a branch holding a symbolic link or submodule anywhere is refused (and the checkout never materialises one), a job dir file that is not a regular file is never read or published, and a `job.json` whose `id` is not its directory name, whose `branch` is not `factory/<id>` or whose `base` is not a commit hash is refused. A job's `worktree` is always your own `factory/worktrees/<id>`, whatever path the branch holds. The dashboard escapes every `job.json` value it renders, and its Content-Security-Policy keeps a job file from sending anything off this machine. You can run `factory` from anywhere, including inside `factory/jobs/`: it finds the project checkout that holds the factory dir.
 

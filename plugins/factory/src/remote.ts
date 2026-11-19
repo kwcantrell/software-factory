@@ -235,6 +235,13 @@ function emptyDir(dir: string): void {
   mkdirSync(dir, { recursive: true });
 }
 
+/**
+ * The one directory on the state branch that is not a job: factory-plugin-advisor's shared, redacted
+ * friction log (factory.json `advisor.share`). The factory never reads or writes it; a pull brings it
+ * into jobs/ like any other file, and job listings skip it (it has no job.json).
+ */
+export const ADVISOR_DIR = 'advisor';
+
 /** A job directory's name on the state branch: `NNN-slug`, as `factory new` makes it. */
 export const JOB_DIR = /^\d+-[a-z0-9-]+$/;
 
@@ -248,12 +255,14 @@ function checkStateTree(dir: string, remote: RemoteConfig, ref: string): void {
   const entries = g(['ls-tree', '-r', '-z', '--full-tree', ref], dir).split('\0').filter(Boolean);
   const links: string[] = [];
   const names = new Set<string>();
+  const dirs = new Set<string>();
   for (const entry of entries) {
     const tab = entry.indexOf('\t');
     const mode = entry.slice(0, entry.indexOf(' '));
     const path = entry.slice(tab + 1);
     if (mode === '120000' || mode === '160000') links.push(path);
     names.add(path.split('/')[0] as string);
+    if (path.includes('/')) dirs.add(path.split('/')[0] as string);
   }
   if (links.length > 0) {
     throw new Refused(
@@ -262,7 +271,9 @@ function checkStateTree(dir: string, remote: RemoteConfig, ref: string): void {
     );
   }
   const ours = (n: string): boolean =>
-    n === 'README.md' ? sh(['show', `${ref}:README.md`], dir).stdout.startsWith(STATE_README_TITLE) : JOB_DIR.test(n);
+    n === 'README.md'
+      ? sh(['show', `${ref}:README.md`], dir).stdout.startsWith(STATE_README_TITLE)
+      : JOB_DIR.test(n) || (n === ADVISOR_DIR && dirs.has(n));
   const bad = [...names].filter((n) => !ours(n));
   if (bad.length > 0) {
     throw new Refused(

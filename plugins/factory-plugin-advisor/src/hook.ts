@@ -13,7 +13,7 @@
 import { record } from './advisor.ts';
 import { marketplacePlugins, type Env } from './plugins.ts';
 import { cleanSummary, type Identity, NO_IDENTITY } from './redact.ts';
-import { Store } from './store.ts';
+import { openStore } from './store.ts';
 import { quickReject } from './hook-filter.ts';
 
 export { quickReject };
@@ -122,14 +122,17 @@ export function failureSummary(f: CliFailure): string {
  * The whole hook: parse the input, record the failure if it is one. Swallows every error, because a
  * hook that fails shows a notice in the conversation; losing one occurrence is the better outcome.
  */
-export function handleHookInput(raw: string, env: Env, pluginRoot: string, now: Date, identity: Identity = NO_IDENTITY): CliFailure | null {
+export function handleHookInput(raw: string, env: Env, pluginRoot: string, now: Date, identity: Identity = NO_IDENTITY, cwd?: string): CliFailure | null {
   try {
     if (quickReject(raw)) return null;
     const { bins, plugins } = marketplacePlugins(pluginRoot, env);
-    const failure = failureOf(JSON.parse(raw), bins, plugins, identity);
+    const input: unknown = JSON.parse(raw);
+    const failure = failureOf(input, bins, plugins, identity);
     if (failure === null) return null;
+    // The session's cwd finds factory.json (and with it whether sharing is on); the shared side never throws.
+    const where = isObject(input) && typeof input.cwd === 'string' && input.cwd.startsWith('/') ? input.cwd : (cwd ?? process.cwd());
     record(
-      new Store(env),
+      openStore(env, where),
       { plugin: failure.plugin, kind: 'cli-failure', summary: failureSummary(failure), exitCode: failure.exitCode, ...(failure.subcommand === undefined ? {} : { subcommand: failure.subcommand }) },
       now,
       'hook',

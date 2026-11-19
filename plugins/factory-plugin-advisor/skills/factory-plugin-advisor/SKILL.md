@@ -14,8 +14,12 @@ any directory. Failed runs of a software-factory plugin's CLI are recorded autom
 plugin's hook, so you do not need to record those yourself. A `factory` command that exits 2
 (escalated to a human) is the line working as designed and is not friction.
 
-The log is local to this machine (`~/.config/factory-plugin-advisor/`, owner-only). The CLI redacts
-anything that looks like a token or secret before storing it, but do your part too.
+The log is local to this machine (`~/.config/factory-plugin-advisor/`, owner-only), unless the
+repository's `factory.json` sets `"advisor": {"share": true}` with a remote factory: then every
+occurrence is also shared with the team on the factory's state branch. The CLI redacts anything that
+looks like a token or secret, and masks personal details, before storing or sharing it, but do your
+part too. If `record` or `suggest` prints a warning on stderr that the remote is or may be public,
+tell the user once; never turn sharing on or off yourself.
 
 ## When to record
 

@@ -8,6 +8,17 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- factory-plugin-advisor: opt-in team sharing. With `factory.json` `"advisor": {"share": true}` and a
+  remote factory, `record` and the hook also append each occurrence (already redacted and masked) to
+  `advisor/occurrences.jsonl` on the state branch, and the issue state moves to
+  `advisor/state.json` there, so one person's dismiss applies to the team. `list`, `show` and
+  `suggest` read local and shared occurrences together, counting each once, and group one issue
+  across people. Shared occurrences carry no identity unless the user sets
+  `FACTORY_PLUGIN_ADVISOR_SHARE_AS`; commits use a fixed author. Writes pull, append, commit and push
+  with retry on a race; offline, occurrences queue locally and the hook stays silent. `record` and
+  `suggest` warn once per session when the remote is or may be public. Local is still the default.
+  The `factory` CLI validates the new `advisor` key and accepts the `advisor/` directory on the state
+  branch.
 - Remote factory: an optional `remote` key in `factory.json`, `{"url": "<git url or path>",
   "branch": "<name>"}`, shares the job state through a git branch (a separate repo or an orphan
   branch of the project repo) so a team runs one line and the history survives. `factory/jobs/`

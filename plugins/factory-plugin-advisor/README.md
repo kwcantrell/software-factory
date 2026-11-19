@@ -118,6 +118,83 @@ lower-cased, with URLs, emails, paths, UUIDs, factory job ids (`005-port-the-fac
 hex, ids and numbers masked. So "refused: 005-port-the-factory is at stage build after 2 rounds" and
 "Refused: 012-add-docs-plugin is at stage build after 3 rounds" are the same issue.
 
+## Sharing with a team (opt-in)
+
+The log is **local by default**. A team that runs a [remote factory](../../README.md#remote-factory)
+can pool what the advisor learns by setting, in the repository's `factory.json`:
+
+```json
+{
+  "remote": {"url": "git@github.com:org/project-factory.git", "branch": "factory-state"},
+  "advisor": {"share": true}
+}
+```
+
+The setting lives in `factory.json` because it is the team's decision, made once for the repository;
+the `factory` CLI validates it (`advisor` is an object whose only key, `share`, is `true` or `false`;
+the default is `false`). The advisor reads `factory.json` from the parent of `FACTORY_DIR`, else from
+the main checkout of the repository the command (or, for the hook, the Claude Code session) runs in.
+With `share` off, without a valid `remote`, or outside a repository, everything is exactly as
+described above: nothing is shared and nothing about the log changes.
+
+**Where.** With sharing on, the advisor keeps two files in an `advisor/` directory on the remote
+factory's state branch (`remote.branch` of `remote.url`), next to the job directories:
+
+| Path on the state branch | Contents |
+| --- | --- |
+| `advisor/occurrences.jsonl` | Every team member's occurrences, one per line, as each local log holds them. Trimmed to the newest 10000 lines once it passes 4 MiB. |
+| `advisor/state.json` | The issue state (suggested, dismissed, filed) and station suggestion state, shared: one person's `dismiss` applies to everyone. |
+
+The `factory` CLI accepts that directory on the branch and never treats it as a job; a pull brings it
+into `factory/jobs/advisor/` like any other file. Drafts (`drafts/`), station drafts and filing stay
+local and unchanged.
+
+**What is shared, and what is not.** Exactly what the local log stores, after the same
+[redaction](#the-log) and personal-detail masking, which run before anything is written anywhere:
+the signature, plugin, kind, redacted summary and detail, timestamp, source, and for the hook the
+subcommand and exit code. Each occurrence also gets a random `id` (in both logs), so one that is in
+your local log and the shared one counts once. **An occurrence carries no identity unless you opt
+in**: set `FACTORY_PLUGIN_ADVISOR_SHARE_AS=<name>` in your environment and your occurrences carry
+`"by": "<name>"`, exactly that name (1 to 64 letters, digits, spaces, `.`, `_` or `-`; anything
+that could be an email or a mention is ignored, and the CLI says so). Without it, nothing in a shared
+occurrence says who recorded it. The advisor's commits are authored and committed as
+`factory-plugin-advisor <factory-plugin-advisor@users.noreply.invalid>`, never with your git
+identity. Signatures are machine-independent (home directories, usernames, paths and ids are masked
+before hashing), so the same problem hit by different people is one issue with one count.
+
+**How it is written.** The same sync as the factory's: fetch the branch, append, commit, push, and
+when the push loses a race, fetch and redo it on the new tip (up to 5 times). The advisor does it in
+a bare clone of its own in the config dir (`shared/<key>/repo.git`, owner-only), building each commit
+on the branch's newest tip so it only ever changes `advisor/` and cannot conflict with a job. A new
+occurrence is appended to the local log first, then put in a queue (`shared/<key>/queue/<id>.json`),
+then pushed; whatever cannot be pushed (offline, a lost race, the hook's 10-second limit) stays
+queued and is pushed by the next command or hook that reaches the remote, never twice. A state change
+that cannot be pushed is kept in the local `state.json` (and `shared/<key>/state-pending.json`) and
+pushed the same way. The hook stays `async` and silent; CLI commands say on stderr when the remote
+cannot be reached and carry on with what they have. git never prompts for credentials here.
+
+**How it is read.** `list`, `show`, `suggest`, `dismiss` and `file` fetch the branch once per command
+and read the local and shared occurrences together, counting an occurrence that is in both once (by
+its `id`); state is the local `state.json` and the shared one merged (dismissed or filed on either
+side stays so; the highest suggested count wins). What comes from the branch is checked before use:
+an occurrence with an unknown field, a control character or a malformed value is ignored.
+
+**The public-remote warning.** Anyone who can read the state branch can read the shared log, so with
+sharing on, `record` and `suggest` print one line on stderr, once per Claude Code session
+(`CLAUDE_CODE_SESSION_ID`; outside a session, every run), when the remote is or may be public:
+
+```text
+factory-plugin-advisor: warning: sharing the redacted friction log on github.com, which hosts public repositories (factory.json advisor.share); if that repository is public, anyone can read the shared occurrences
+```
+
+It decides from `remote.url` alone, with no network, and never refuses anything: a local path or
+`file://` URL, and a host on a private network (`localhost`, a private or loopback IP address, a
+name without a dot, or one ending in `.local`, `.internal`, `.intranet`, `.corp`, `.lan` or
+`.home.arpa`), get no warning. A host that serves public repositories (GitHub, GitLab, Bitbucket,
+Codeberg, SourceHut, Gitee, SourceForge, Launchpad, Hugging Face) always gets one, since whether that
+one repository is public cannot be told offline, and so does any other host, which the advisor cannot
+tell is private. Credentials in the URL are never printed.
+
 ## The hook
 
 `hooks/hooks.json` registers `node ${CLAUDE_PLUGIN_ROOT}/src/cli.ts hook` (exec form, no shell) as an
@@ -141,7 +218,8 @@ hex, ids and numbers masked. So "refused: 005-port-the-factory is at stage build
 - **What is kept.** Only the plugin, the subcommand, the exit code and the redacted first line of the
   CLI's own error message (`<bin>: ...`, `refused: ...` for `factory`, or npm's `npm error ...`).
   Never the command line and never the command's stdout.
-- **Never in the way.** It prints nothing, always exits 0, and swallows any error. It runs `async`,
+- **Never in the way.** It prints nothing, always exits 0, and swallows any error. With
+  [sharing](#sharing-with-a-team-opt-in) on, an occurrence it cannot push is queued, not lost. It runs `async`,
   so Claude does not wait for it. Input that cannot be a marketplace CLI failure is rejected by a
   string check before the rest of the CLI is loaded.
 - **Why `node` and not the `npx` prefix.** The hook runs this plugin's own CLI either way. `npx`
