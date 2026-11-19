@@ -1,7 +1,7 @@
 ---
 name: upgrade
 description: Points to factory-doctor migrate, which replaced factory upgrade. Use only when the user runs /factory:upgrade; for moving a repo between releases, use the factory-doctor skill.
-allowed-tools: Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory upgrade --help)
+allowed-tools: Bash(npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory upgrade --help:*)
 ---
 
 # Upgrade moved to factory-doctor migrate
