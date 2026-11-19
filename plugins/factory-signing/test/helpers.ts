@@ -40,6 +40,7 @@ export class Sandbox {
   readonly gitconfig: string;
   env: NodeJS.ProcessEnv;
   private agent: ChildProcess | null = null;
+  private agents = 0;
 
   constructor() {
     this.tmp = realpathSync(mkdtempSync(join(tmpdir(), 'fsign-')));
@@ -108,7 +109,9 @@ export class Sandbox {
 
   /** Starts a temp ssh-agent on a socket in the sandbox and points SSH_AUTH_SOCK at it. */
   startAgent(): void {
-    const sock = join(this.tmp, 'agent.sock');
+    // A new socket path each time: a stopped agent removes its own socket as it exits, which could
+    // otherwise race with the next agent's.
+    const sock = join(this.tmp, `agent-${++this.agents}.sock`);
     this.agent = spawn('ssh-agent', ['-D', '-a', sock], { stdio: 'ignore', env: this.env });
     for (let i = 0; i < 200 && !existsSync(sock); i++) sleep(25);
     assert.ok(existsSync(sock), 'ssh-agent did not start');
