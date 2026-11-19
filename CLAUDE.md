@@ -36,7 +36,8 @@ build step and no runtime dependency.
 | `plugins/factory/src/cli.ts`, `run.ts` | CLI entry, and argument parsing, usage text and exit codes |
 | `plugins/factory/src/factory.ts` | The line's state machine and gates: the only writer of `job.json` |
 | `plugins/factory/src/remote.ts` | The remote factory's git side: `remote` validation, attaching `jobs/` as a checkout of the state branch, pull, publish (commit, push, retry, conflict refusal), `remote status` and `remote push`; the state branch holds job directories, its README and factory-plugin-advisor's `advisor/` directory, nothing else |
-| `plugins/factory/src/errors.ts` | `Refused`, `Escalated` and `now()`, shared by `factory.ts` and `remote.ts` without an import cycle |
+| `plugins/factory/src/signing.ts` | Signed state commits in remote mode: the signer's git settings (`gpg.format ssh`, `user.signingkey`) read before any state change, the `commit -S` arguments, and `merge`'s check of a job's state history against the allowed-signers file committed in the project checkout |
+| `plugins/factory/src/errors.ts` | `Refused`, `Escalated` and `now()`, shared by `factory.ts`, `remote.ts` and `signing.ts` without an import cycle |
 | `plugins/factory/src/agents.ts` | `factory agents`: station agent resolution (project or shipped fallback), `new` (a template as a project agent) and `check` (the rules a project agent must pass) |
 | `plugins/factory/src/upgrade.ts` | `factory upgrade`: moves a repo from an older factory (settings, `factory/` dir, manual steps); dry run unless `--apply` |
 | `plugins/factory/src/dashboard.ts` | `factory dashboard`: serves the factory dir on 127.0.0.1 |
@@ -142,7 +143,7 @@ next one, rule by rule (the bracketed ids are its rule names).
   through npx from an unrelated cwd, offline with an empty npm cache [e2e-test].
 - **`allowed-tools`** allows the prefix: `Bash(<prefix> <name>:*)`, or, when some commands write,
   act on the machine or need a person, one `Bash(<prefix> <name> <command>:*)` rule per command that
-  may run unprompted [allowed-tools]. `factory` never pre-approves `merge`, `approve` or `rework`;
+  may run unprompted [allowed-tools]. `factory` never pre-approves `merge`, `approve`, `rework`, `claim` or `close`;
   `factory-plugin-builder` pre-approves `check`, `verify` and `--help`, not `new`; `factory-dev`
   pre-approves `check`, `release` and `--help`; `factory-docs` pre-approves `which`, `stale`,
   `lint`, `gate` and `--help` (all read-only); `factory-plugin-advisor` pre-approves `record`, `list`,
@@ -166,8 +167,8 @@ next one, rule by rule (the bracketed ids are its rule names).
   <command>`. `--package` resolves the plugin's own folder (the plugin cache has no
   `node_modules`); `--offline` stops an empty `${CLAUDE_PLUGIN_ROOT}` from fetching a registry
   package named `undefined`. A skill or agent may define `factory` once as that invocation.
-  `allowed-tools` may pre-approve read-only and station commands only, never `merge`, `approve` or
-  `rework`. Hooks run TS with `node` directly (`"command": "node", "args": [...]`).
+  `allowed-tools` may pre-approve read-only and station commands only, never `merge`, `approve`,
+  `rework`, `claim` or `close`. Hooks run TS with `node` directly (`"command": "node", "args": [...]`).
 - **TypeScript that Node runs as-is**: Node >= 22.18 strips types, so only erasable syntax (no
   `enum`, `namespace` or parameter properties; `erasableSyntaxOnly` enforces it), relative imports
   with the `.ts` extension, `import type` for types. The root `tsconfig.json` is strict and covers
@@ -185,7 +186,7 @@ next one, rule by rule (the bracketed ids are its rule names).
   (`build.md`, `proof.md`, `review-<round>-<reviewer>.md`) sits at the root of the main checkout or
   the job's worktree: stations write handoff files only to the job dir.
 - **Human-only commands** (today `factory merge`, `factory approve`, `factory rework`,
-  `factory claim`) are made permission prompts by the TS hook (`plugins/factory/src/gate.ts`, run by
+  `factory claim`, `factory close`) are made permission prompts by the TS hook (`plugins/factory/src/gate.ts`, run by
   `hooks/hooks.json`). A new command only a person may run must be added there too, and its skill
   marked `disable-model-invocation: true` (`claim` has no skill; the README and the station agents
   say it is a human's).
@@ -208,9 +209,14 @@ next one, rule by rule (the bracketed ids are its rule names).
   branch, never holding worktrees. Every state-changing command goes through `editing()` (or `new`'s
   allocation loop), which pulls, applies, saves and publishes one commit of the job's directory;
   a new state-changing command must do the same, and declare a command name for the commit message
-  and the owner check (`ANYONE` lists the commands anyone may run on a claimed job). Read commands
-  set `read: true` in `run.ts` and take `--offline`. Local mode (no `remote`) must behave exactly as
-  before. `remote.test.ts` uses a bare repo in a temp dir as the remote and two clones as two people.
+  and the owner check (`ANYONE` lists the commands anyone may run on a claimed job). Every state
+  commit goes through `remote.ts`'s `commit()`, which signs it (`src/signing.ts`): a command that
+  changes state calls `signFor(remote, true)` before anything changes, so a missing signing setup
+  is refused up front; `merge` verifies the job's state history against `remote.allowed_signers`
+  as committed at the project checkout's HEAD, and only `remote.unsigned_ok` turns both off. Read
+  commands set `read: true` in `run.ts` and take `--offline`. Local mode (no `remote`) must behave exactly as
+  before. `remote.test.ts` uses a bare repo in a temp dir as the remote and two clones as two people,
+  each signing with a throwaway SSH key from `ssh-keygen` in the temp dir (never the user's keys).
 - **Every user-visible change gets a semver bump and a changelog entry.** Add it under
   `## [Unreleased]` in `CHANGELOG.md` (Keep a Changelog). **One changelog, one repo version:** every
   marketplace plugin's `.claude-plugin/plugin.json` and `package.json` carry the same `version`

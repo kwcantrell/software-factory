@@ -11,12 +11,20 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve as resolvePath } from 'node:path';
 import { now, Refused } from './errors.ts';
+import { commitArgs } from './signing.ts';
 
 export interface RemoteConfig {
   /** A git URL or path. A path starting with ./ or ../ is relative to factory.json's directory. */
   url: string;
   /** The branch that holds the state, e.g. "factory-state". */
   branch: string;
+  /**
+   * Repo-relative path to the SSH allowed-signers file `factory merge` checks every state commit of a
+   * job against, read from the project checkout's HEAD (src/signing.ts). Null: merge refuses.
+   */
+  allowed_signers?: string | null;
+  /** True turns state commit signing and merge's signature check off (the README warns against it). */
+  unsigned_ok?: boolean;
 }
 
 /** Who runs this command: the git identity its commits carry. */
@@ -25,7 +33,13 @@ export interface Person {
   email: string;
 }
 
-export const REMOTE_KEYS = ['url', 'branch'] as const;
+export const REMOTE_KEYS = ['url', 'branch', 'allowed_signers', 'unsigned_ok'] as const;
+
+/** Defaults of the optional `remote` keys, filled in by factory.ts loadConfig when `remote` is set. */
+export const REMOTE_DEFAULTS: Readonly<Pick<RemoteConfig, 'allowed_signers' | 'unsigned_ok'>> = {
+  allowed_signers: null,
+  unsigned_ok: false,
+};
 
 /** How many times a push that lost a race is retried before the command gives up. */
 export const PUSH_ATTEMPTS = 5;
@@ -96,13 +110,36 @@ export function remoteProblem(value: unknown): string | null {
   if (typeof obj.branch !== 'string' || !branchOk(obj.branch)) {
     return `'remote.branch' must be a git branch name like "factory-state"`;
   }
+  const signers = obj.allowed_signers;
+  if (signers !== undefined && signers !== null && (typeof signers !== 'string' || !signersPathOk(signers))) {
+    return `'remote.allowed_signers' must be null or a path inside the repository, relative to its root, like ".factory/allowed_signers" (no leading '/', no '..')`;
+  }
+  if (obj.unsigned_ok !== undefined && typeof obj.unsigned_ok !== 'boolean') {
+    return `'remote.unsigned_ok' must be true or false`;
+  }
+  if (obj.unsigned_ok === true && typeof signers === 'string') {
+    return `'remote.unsigned_ok' is true, which turns signature checks off, but 'remote.allowed_signers' is set: keep only one`;
+  }
   return null;
+}
+
+/** A repo-relative file path: no leading '/' or '-', no '.', '..' or '.git' segment, no backslash or control character. */
+function signersPathOk(p: string): boolean {
+  return (
+    p.length > 0 &&
+    p.length <= 1024 &&
+    !/[\\\u0000-\u001f\u007f]/.test(p) &&
+    !p.startsWith('/') &&
+    !p.startsWith('-') &&
+    !p.startsWith(':') &&
+    p.split('/').every((part) => part !== '' && part !== '.' && part !== '..' && part.toLowerCase() !== '.git')
+  );
 }
 
 /** The remote with a ./ or ../ url made absolute against `base` (factory.json's directory). */
 export function resolveRemote(remote: RemoteConfig, base: string): RemoteConfig {
   const rel = remote.url.startsWith('./') || remote.url.startsWith('../');
-  return { url: rel ? resolvePath(base, remote.url) : remote.url, branch: remote.branch };
+  return { ...remote, url: rel ? resolvePath(base, remote.url) : remote.url };
 }
 
 // ---------------------------------------------------------------- git
@@ -185,8 +222,9 @@ export function isStateCheckout(dir: string): boolean {
 
 const tracking = (remote: RemoteConfig): string => `refs/remotes/origin/${remote.branch}`;
 
+/** A state commit, signed when this command signs (src/signing.ts; refused when signing is required but not set up). */
 function commit(dir: string, me: Person, message: string): void {
-  g(['-c', `user.name=${me.name}`, '-c', `user.email=${me.email}`, 'commit', '-q', '-m', message], dir);
+  g(['-c', `user.name=${me.name}`, '-c', `user.email=${me.email}`, ...commitArgs(), '-q', '-m', message], dir);
 }
 
 function rev(dir: string, ref: string): string {

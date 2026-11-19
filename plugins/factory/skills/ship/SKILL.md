@@ -18,7 +18,7 @@ npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factor
 
 The user invoked this themselves; it is the factory's human gate. If no job id was given, run `factory status`, list the jobs in stage `ship`, and ask which one.
 
-If the arguments say `reject`, run `factory close <id> <reason>` and report that the branch was kept. Otherwise:
+If the arguments say `reject`, run `factory close <id> <reason>`; Claude Code asks the user to confirm it (the close gate), so do not try to avoid the prompt. Report that the branch was kept. Otherwise:
 
 1. Run `factory status <id>`. If the job is not in stage `ship`, say where it is and stop.
 2. Show the user what they are approving, briefly: the summary and risks from `ship.md` in the job dir, and `git -C <worktree> diff --stat <base>...HEAD`. Point out anything `ship.md` flags for a manual look, and the open follow-ups (`factory followup list <id>`); they stay open after the merge. Do not pad it.

@@ -181,3 +181,54 @@ test('round numbers and verdicts from a shared job.json are escaped, never rende
   assert.match(ok, /class="chip changes landed"/);
   assert.equal(roundsHtml({ id: '003-z' }), '');
 });
+
+/** dashboard/index.html's loadJobs() and jobProblem(), run as the page runs them, over `files` (dir -> job.json text). */
+function pageLoadJobs(files: Record<string, string | null>): { load: () => Promise<any[]>; warnings: string[] } {
+  const page = readFileSync(join(PLUGIN, 'dashboard', 'index.html'), 'utf8');
+  const parts = [
+    /^const STAGES = .*$/m,
+    /^function jobProblem\(j, dir\) \{[\s\S]*?^\}$/m,
+    /^const warnedJobs = .*$/m,
+    /^async function loadJobs\(\) \{[\s\S]*?^\}$/m,
+  ].map((re) => re.exec(page)?.[0]);
+  assert.ok(parts.every(Boolean), 'loadJobs, jobProblem, warnedJobs or STAGES not found in dashboard/index.html');
+  const warnings: string[] = [];
+  const ctx = {
+    warnings,
+    out: null as unknown,
+    console: { warn: (m: string) => warnings.push(m) },
+    listDir: async () => Object.keys(files).map((d) => `${encodeURIComponent(d)}/`),
+    get: async (url: string) => {
+      const dir = decodeURIComponent(url.split('/')[1] as string);
+      const text = files[dir];
+      if (text === null || text === undefined) throw new Error(`${url} 404`);
+      return { json: async () => JSON.parse(text) };
+    },
+  };
+  runInNewContext(`${parts.join('\n')}\nout = loadJobs;`, ctx);
+  return { load: ctx.out as () => Promise<any[]>, warnings };
+}
+
+test('the dashboard skips a job whose job.json fails validation, warning once per bad job', async () => {
+  const job = (id: string, extra: Record<string, unknown> = {}): string =>
+    JSON.stringify({ id, title: 't', stage: 'build', status: 'active', created: '2026-01-01T00:00:00Z', rounds: [], history: [], ...extra });
+  const { load, warnings } = pageLoadJobs({
+    '001-good': job('001-good'),
+    '002-broken': '{"id": ',
+    '003-odd': job('003-odd', { stage: 'nowhere' }),
+    '004-other': job('999-elsewhere'),
+    '005-old': job('005-old'), // an older job.json without followups or owner still shows
+    '006-rounds': job('006-rounds', { rounds: 'r1' }),
+    advisor: null,
+  });
+  const ids = [...(await load())].map((j) => j.id);
+  assert.deepEqual(ids, ['001-good', '005-old']);
+  assert.equal(warnings.length, 4, warnings.join('\n'));
+  assert.match(warnings[0] as string, /skipping jobs\/002-broken\/: job\.json cannot be read as JSON/);
+  assert.match(warnings[1] as string, /skipping jobs\/003-odd\/: 'stage' is "nowhere"/);
+  assert.match(warnings[2] as string, /skipping jobs\/004-other\/: its id is "999-elsewhere"/);
+  assert.match(warnings[3] as string, /skipping jobs\/006-rounds\/: 'rounds'/);
+  // The next poll shows the same jobs and does not warn again.
+  assert.deepEqual([...(await load())].map((j) => j.id), ids);
+  assert.equal(warnings.length, 4);
+});

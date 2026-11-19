@@ -19,6 +19,8 @@ const REASONS = {
     'Software Factory rework gate: this sends a job every reviewer approved back to build, with your request saved as rework-<round>.md.',
   claim:
     'Software Factory claim gate: this takes a job in the shared remote factory over from the person who claimed it.',
+  close:
+    'Software Factory close gate: this ends a job without merging it (its branch is kept), whoever claimed it.',
 };
 
 function hook(stdin: string): { status: number | null; stdout: string; stderr: string } {
@@ -37,7 +39,7 @@ test('hooks.json runs the TypeScript hook with node, no shell script', () => {
   assert.deepEqual(entry.hooks[0].args, ['${CLAUDE_PLUGIN_ROOT}/src/human-gate.ts']);
 });
 
-test('merge, approve, rework and claim become a permission prompt, in every form', () => {
+test('merge, approve, rework, claim and close become a permission prompt, in every form', () => {
   for (const [name, reason] of Object.entries(REASONS)) {
     for (const command of [
       `factory ${name} 3`,

@@ -24,7 +24,8 @@ export const SHIPPED = join(PLUGIN_ROOT, 'agents');
 /** Where a project keeps its agents, relative to the repository root. */
 export const AGENTS_DIR = join('.claude', 'agents');
 export const INVOCATION = 'npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory';
-const HUMAN_ONLY = ['merge', 'approve', 'rework'] as const;
+/** Human-gated commands (src/gate.ts) no station may pre-approve or run. */
+const HUMAN_ONLY = ['merge', 'approve', 'rework', 'close'] as const;
 const NAME = /^[a-z0-9][a-z0-9-]*$/;
 
 export type Kind = 'builder' | 'verifier' | 'reviewer';

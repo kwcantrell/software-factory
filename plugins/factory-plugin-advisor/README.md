@@ -165,7 +165,9 @@ before hashing), so the same problem hit by different people is one issue with o
 **How it is written.** The same sync as the factory's: fetch the branch, append, commit, push, and
 when the push loses a race, fetch and redo it on the new tip (up to 5 times). The advisor does it in
 a bare clone of its own in the config dir (`shared/<key>/repo.git`, owner-only), building each commit
-on the branch's newest tip so it only ever changes `advisor/` and cannot conflict with a job. A new
+on the branch's newest tip so it only ever changes `advisor/` and cannot conflict with a job. Its
+commits are not signed: the factory signs its own state commits and `factory merge` checks only the
+commits that touched the job being merged, never `advisor/`. A new
 occurrence is appended to the local log first, then put in a queue (`shared/<key>/queue/<id>.json`),
 then pushed; whatever cannot be pushed (offline, a lost race, the hook's 10-second limit) stays
 queued and is pushed by the next command or hook that reaches the remote, never twice. The queue file

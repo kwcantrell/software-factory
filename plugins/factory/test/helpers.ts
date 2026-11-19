@@ -65,6 +65,13 @@ export class Repo {
     rmSync(this.tmp, { recursive: true, force: true });
   }
 
+  /** Sign this repo's commits (and so its remote factory's state commits) with a throwaway SSH key. */
+  sign(): { key: string; signer: string } {
+    const k = sshKey(join(this.tmp, 'keys'), 'test', 'test@example.invalid');
+    useKey(this.repo, this.env, k.key);
+    return k;
+  }
+
   git(args: string[], cwd?: string): string {
     const p = spawnSync('git', args, { cwd: cwd ?? this.repo, env: this.env, encoding: 'utf8' });
     assert.equal(p.status, 0, `git ${args.join(' ')}: ${p.stderr}`);
@@ -129,6 +136,27 @@ export class Repo {
     this.ok(['verdict', id, 'solo', 'approve']);
     assert.equal(this.job(id).stage, 'ship');
     return id;
+  }
+}
+
+/**
+ * A throwaway SSH signing key in `dir` (never the user's own keys or git config): `key` is the private
+ * key's path, `signer` its line for an allowed-signers file.
+ */
+export function sshKey(dir: string, name: string, email: string): { key: string; signer: string } {
+  mkdirSync(dir, { recursive: true });
+  const key = join(dir, `${name}_ed25519`);
+  const p = spawnSync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-C', email, '-f', key], { encoding: 'utf8' });
+  assert.equal(p.status, 0, `ssh-keygen: ${p.stderr}`);
+  const pub = readFileSync(`${key}.pub`, 'utf8').trim().split(' ');
+  return { key, signer: `${email} ${pub[0]} ${pub[1]}` };
+}
+
+/** Make `repo`'s git config sign commits with `key` (SSH), as a person sets it up for the remote factory. */
+export function useKey(repo: string, env: NodeJS.ProcessEnv, key: string): void {
+  for (const [k, v] of [['gpg.format', 'ssh'], ['user.signingkey', key]] as const) {
+    const p = spawnSync('git', ['config', k, v], { cwd: repo, env, encoding: 'utf8' });
+    assert.equal(p.status, 0, p.stderr);
   }
 }
 
