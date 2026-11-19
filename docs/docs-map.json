@@ -1,0 +1,80 @@
+{
+  "$comment": "factory-docs doc map: each doc and the globs of the code it describes. See plugins/factory-docs/README.md.",
+  "docs": {
+    "README.md": [
+      ".claude-plugin/marketplace.json",
+      "plugins/factory/src/**",
+      "plugins/factory/hooks/**",
+      "plugins/factory/dashboard/**",
+      "plugins/factory/package.json",
+      "plugins/factory/.claude-plugin/plugin.json"
+    ],
+    "CLAUDE.md": [
+      ".claude-plugin/marketplace.json",
+      "package.json",
+      "tsconfig.json",
+      ".gitignore",
+      ".github/workflows/**",
+      "templates/plugin/**",
+      "plugins/factory-plugin-builder/src/check.ts",
+      "plugins/factory/src/gate.ts",
+      "plugins/factory/src/factory.ts"
+    ],
+    "CONTRIBUTING.md": [
+      "package.json",
+      ".github/workflows/**",
+      ".github/pull_request_template.md",
+      ".github/ISSUE_TEMPLATE/**",
+      "plugins/factory-dev/src/check.ts",
+      "plugins/factory-dev/src/release.ts"
+    ],
+    "CHANGELOG.md": [
+      "plugins/*/src/**",
+      "plugins/*/skills/**",
+      "plugins/*/agents/**",
+      "plugins/*/hooks/**",
+      "plugins/*/dashboard/**",
+      "plugins/*/.claude-plugin/plugin.json",
+      "plugins/*/package.json"
+    ],
+    "plugins/factory-plugin-builder/README.md": [
+      "plugins/factory-plugin-builder/src/**",
+      "plugins/factory-plugin-builder/package.json",
+      "plugins/factory-plugin-builder/.claude-plugin/plugin.json"
+    ],
+    "plugins/factory-dev/README.md": [
+      "plugins/factory-dev/src/**",
+      "plugins/factory-dev/package.json",
+      "plugins/factory-dev/.claude-plugin/plugin.json"
+    ],
+    "plugins/factory-docs/README.md": [
+      "plugins/factory-docs/src/**",
+      "plugins/factory-docs/package.json",
+      "plugins/factory-docs/.claude-plugin/plugin.json",
+      "docs/docs-map.json"
+    ],
+    "plugins/factory/skills/run/SKILL.md": ["plugins/factory/src/run.ts"],
+    "plugins/factory/skills/approve/SKILL.md": ["plugins/factory/src/run.ts", "plugins/factory/src/gate.ts"],
+    "plugins/factory/skills/ship/SKILL.md": ["plugins/factory/src/run.ts", "plugins/factory/src/gate.ts"],
+    "plugins/factory/skills/dashboard/SKILL.md": ["plugins/factory/src/run.ts", "plugins/factory/src/dashboard.ts"],
+    "plugins/factory/skills/upgrade/SKILL.md": ["plugins/factory/src/run.ts", "plugins/factory/src/upgrade.ts"],
+    "plugins/factory/agents/builder.md": ["plugins/factory/src/run.ts"],
+    "plugins/factory/agents/verifier.md": ["plugins/factory/src/run.ts"],
+    "plugins/factory/agents/reviewer-security.md": ["plugins/factory/src/run.ts"],
+    "plugins/factory/agents/reviewer-standards.md": ["plugins/factory/src/run.ts"],
+    "plugins/factory/agents/reviewer-behavior.md": ["plugins/factory/src/run.ts"],
+    "plugins/factory-plugin-builder/skills/build-plugin/SKILL.md": ["plugins/factory-plugin-builder/src/run.ts", "plugins/factory-plugin-builder/src/scaffold.ts", "plugins/factory-plugin-builder/src/check.ts", "plugins/factory-plugin-builder/src/verify.ts"],
+    "plugins/factory-dev/skills/factory-dev/SKILL.md": ["plugins/factory-dev/src/run.ts", "plugins/factory-dev/src/check.ts", "plugins/factory-dev/src/release.ts"],
+    "plugins/factory-docs/skills/factory-docs/SKILL.md": ["plugins/factory-docs/src/run.ts", "plugins/factory-docs/src/docs.ts"],
+    "templates/plugin/skills/plugin-template/SKILL.md": ["templates/plugin/src/**"]
+  },
+  "changelog": "CHANGELOG.md",
+  "ignore": [
+    ".github/ISSUE_TEMPLATE/*.md",
+    ".github/pull_request_template.md",
+    "plugins/factory/test/fixtures/**"
+  ],
+  "cli_docs": {
+    "factory": "README.md"
+  }
+}

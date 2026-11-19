@@ -1,0 +1,10 @@
+{
+  "name": "factory-docs",
+  "version": "0.2.0",
+  "description": "Keeps the software-factory repository's docs in sync with its code: a checked-in map from each doc to the code it describes, which docs cover a file, which docs a change left stale, a lint for the map and for CLI command coverage, and the gate CI runs.",
+  "author": { "name": "Kalen Cantrell" },
+  "homepage": "https://github.com/kwcantrell/software-factory",
+  "repository": "https://github.com/kwcantrell/software-factory",
+  "license": "MIT",
+  "keywords": ["docs", "ci", "stale", "software-factory"]
+}
