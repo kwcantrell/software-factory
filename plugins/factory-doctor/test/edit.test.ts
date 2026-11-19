@@ -123,6 +123,8 @@ test('add and remove refusals', async () => {
     [['add', 'database', 'pg', '--profile', 'dev', '--why', 'x'], 2, /unknown kind 'database'/],
     [['add', 'tool', 'go', '--profile', 'dev', '--why', 'x', '--format', 'url'], 2, /--format does not apply to a tool requirement/],
     [['add', 'tool', 'go', '--profile', 'dev', '--why', 'x', '--tool-version', 'latest'], 1, /is not a version constraint/],
+    [['add', 'tool', 'go', '--profile', 'dev', '--why', 'x', '--tool-version', '>=1', '--version-command', 'go -e x', '--confirm'], 1, /version_command: must be the tool and at most one argument/],
+    [['add', 'tool', 'go', '--profile', 'dev', '--why', 'x', '--tool-version', '>=1', '--version-command', 'go -r', '--confirm'], 1, /version_command\[1\]: must be a version probe/],
     [['add', 'service', 'localhost', '--profile', 'dev', '--why', 'x'], 2, /a service is named <host>:<port>/],
     [['remove', 'tool', 'node', '--profile', 'test'], 1, /profile 'test' gets tool node from profile 'dev'; remove it there/],
     [['remove', 'tool', 'go', '--profile', 'dev'], 1, /profile 'dev' has no tool go/],

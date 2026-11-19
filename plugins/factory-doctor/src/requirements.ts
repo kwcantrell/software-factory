@@ -114,6 +114,9 @@ const KEYS: Record<Kind, readonly string[]> = {
   service: ['kind', 'host', 'port', 'timeout_ms'],
 };
 const COMMON = ['why', 'source', 'optional'];
+
+/** The only argument a `version_command` may give its tool: flags that print a version, nothing else. */
+export const VERSION_PROBES: readonly string[] = ['--version', '-version', '-v', '-V', 'version', '-Version', '--Version'];
 const TOP_KEYS = ['version', 'description', 'default_profile', 'profiles'];
 const PROFILE_KEYS = ['description', 'extends', 'dotenv', 'requires'];
 
@@ -193,6 +196,12 @@ class Validator {
             if (typeof a !== 'string' || a === '' || a.includes('\0')) this.fail(`${path}.version_command[${i}]`, 'must be a non-empty string');
           });
           if (c[0] !== name) this.fail(`${path}.version_command[0]`, `must be the tool itself, ${JSON.stringify(name)}: the check runs only the tool it checks`);
+          // A committed file must not turn the pre-approved check into a code runner (node -e,
+          // python -c, node -r <module>): the tool takes at most one argument, a known version probe.
+          if (c.length > 2) this.fail(`${path}.version_command`, `must be the tool and at most one argument, one of ${VERSION_PROBES.join(' ')}`);
+          if (c.length === 2 && !VERSION_PROBES.includes(c[1] as string)) {
+            this.fail(`${path}.version_command[1]`, `must be a version probe, one of ${VERSION_PROBES.join(' ')}: the check runs nothing else`);
+          }
         }
         if (r.version_pattern !== undefined) this.regex(r.version_pattern, `${path}.version_pattern`);
         break;
@@ -316,8 +325,9 @@ export function load(path: string, label: string): DoctorFile | null {
   let doc: unknown;
   try {
     doc = JSON.parse(readFileSync(path, 'utf8'));
-  } catch (error) {
-    throw new Refused(`${label}: not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  } catch {
+    // Never the parser's message: it quotes the input, which may be a dotenv file's value.
+    throw new Refused(`${label}: not valid JSON`);
   }
   return validate(doc, label);
 }

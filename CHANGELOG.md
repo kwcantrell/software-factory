@@ -13,7 +13,9 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   `extends`): tools with version constraints, environment variable names (with an optional format
   check), files, TCP services, Claude Code plugins and skills, each with a `why` and a `source`.
   Never a value: loading refuses a `value`, `default` or `secret` key, `add` refuses value-bearing
-  flags, and no output ever holds a variable's value. `check [<profile>]` checks this machine and
+  flags, and no output ever holds a variable's value (nor a quote of a file that is not valid
+  JSON). A tool's `version_command` is the tool and at most one version probe (`--version`,
+  `-version`, `-v`, ...), so a committed file cannot make `check` run code. `check [<profile>]` checks this machine and
   prints a fix per problem (exit 1 when anything required is missing); `scan` reads the repository
   (dotenv examples and names, env reads in code and compose files, engines, version files,
   Dockerfiles, CI steps) and proposes requirements with their file:line, read-only; `add`, `remove`
@@ -26,7 +28,6 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   a newly discovered requirement to the file in the job's commits. Existing project agents fail
   `factory agents check` until refreshed (`factory agents new <station> --force`, or add the
   section from the template).
-
 - Remote factory: signed state commits, verified at the merge gate. Every state commit the CLI makes
   in remote mode is signed with the person's own SSH key (`git commit -S` with `gpg.format ssh` and
   `user.signingkey`); a command that would change state refuses before changing anything, naming

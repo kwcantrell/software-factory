@@ -7,6 +7,7 @@
 import { spawnSync } from 'node:child_process';
 import { accessSync, constants, statSync } from 'node:fs';
 import { connect } from 'node:net';
+import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { type ClaudeRecords, type Env, readClaudeRecords } from './claude.ts';
 import { readDotenvNames, resolvePath } from './repo.ts';
@@ -74,8 +75,9 @@ function checkTool(r: ToolRequirement, ctx: CheckContext): Pick<Result, 'status'
   if (r.version === undefined) return { status: 'ok', detail: `found at ${path}` };
   const constraint = parseConstraint(r.version);
   const [, ...args] = r.version_command ?? [r.name, '--version'];
-  // No shell: the tool itself (the file found on PATH) with its arguments from the requirement.
-  const run = spawnSync(path, args, { encoding: 'utf8', timeout: 5000, env: ctx.env as NodeJS.ProcessEnv, stdio: ['ignore', 'pipe', 'pipe'], cwd: ctx.root });
+  // No shell: the tool itself (the file found on PATH) with at most one version probe (validated on
+  // load), from a neutral cwd so a tool that reads its directory (go.mod's toolchain) acts on nothing.
+  const run = spawnSync(path, args, { encoding: 'utf8', timeout: 5000, env: ctx.env as NodeJS.ProcessEnv, stdio: ['ignore', 'pipe', 'pipe'], cwd: tmpdir() });
   const version = extractVersion(`${run.stdout ?? ''}\n${run.stderr ?? ''}`, r.version_pattern);
   const command = [r.name, ...args].join(' ');
   if (version === null) {

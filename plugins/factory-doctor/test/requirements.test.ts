@@ -1,8 +1,10 @@
 // The requirements file: its format, validation (each refusal names the JSON path, exit 1), and
 // profile resolution with extends.
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { after, test } from 'node:test';
-import { resolve, validate } from '../src/requirements.ts';
+import { resolve, validate, VERSION_PROBES } from '../src/requirements.ts';
 import { parseConstraint, satisfies, extractVersion } from '../src/version.ts';
 import { doc, sandbox } from './helpers.ts';
 
@@ -38,6 +40,10 @@ const REFUSALS: ReadonlyArray<readonly [string, unknown, RegExp]> = [
   ['a missing default_profile', doc({ a: {} }, { default_profile: 'b' }), /\$\.default_profile: no profile 'b'/],
   ['a bad version constraint', doc({ dev: { requires: [{ ...tool, version: '~> 2' }] } }), /\$\.profiles\.dev\.requires\[0\]\.version: "~> 2" is not a version constraint/],
   ['a version_command for another program', doc({ dev: { requires: [{ ...tool, version_command: ['sh', '-c', 'x'] }] } }), /version_command\[0\]: must be the tool itself, "node"/],
+  ['a version_command that evaluates code (node -e)', doc({ dev: { requires: [{ ...tool, version_command: ['node', '-e', "require('fs').writeFileSync('pwned','x')"] }] } }), /\$\.profiles\.dev\.requires\[0\]\.version_command: must be the tool and at most one argument/],
+  ['a version_command that evaluates code (python -c)', doc({ dev: { requires: [{ kind: 'tool', name: 'python', why: 'x', version_command: ['python', '-c', 'import os'] }] } }), /\$\.profiles\.dev\.requires\[0\]\.version_command: must be the tool and at most one argument/],
+  ['a version_command that loads a module (node -r)', doc({ dev: { requires: [{ ...tool, version_command: ['node', '-r', 'evil'] }] } }), /\.version_command: must be the tool and at most one argument/],
+  ['a version_command argument that is not a version probe', doc({ dev: { requires: [{ ...tool, version_command: ['node', '--eval=1'] }] } }), /\$\.profiles\.dev\.requires\[0\]\.version_command\[1\]: must be a version probe/],
   ['a tool given as a path', doc({ dev: { requires: [{ ...tool, name: '/bin/node' }] } }), /\.name: "\/bin\/node" is not a command name/],
   ['a bad env format', doc({ dev: { requires: [{ kind: 'env', name: 'A', why: 'x', format: 'email' }] } }), /\.format: must be non-empty, url, integer or \{"regex": "..."\}/],
   ['a bad regex', doc({ dev: { requires: [{ kind: 'env', name: 'A', why: 'x', format: { regex: '(' } }] } }), /\.format\.regex: not a valid regular expression/],
@@ -64,6 +70,32 @@ test('an env name that is really NAME=value is refused without echoing the value
   const err = await refusal(doc({ dev: { requires: [{ kind: 'env', name: 'TOKEN=hunter2-value', why: 'x' }] } }));
   assert.match(err, /\$\.profiles\.dev\.requires\[0\]\.name: it is not an environment variable name/);
   assert.ok(!err.includes('hunter2'), err);
+});
+
+test('a committed version_command never runs: check refuses it before running anything', async () => {
+  const pwned = join(s.dir, 'pwned');
+  s.writeJson('.factory/doctor.json', doc({ dev: { requires: [{ ...tool, version: '>=1', version_command: ['node', '-e', `require('fs').writeFileSync(${JSON.stringify(pwned)},'x');console.log('v22.0.0')`] }] } }));
+  const r = await s.call(['check', 'dev']);
+  assert.equal(r.code, 1);
+  assert.match(r.stderr, /version_command: must be the tool and at most one argument/);
+  assert.equal(existsSync(pwned), false);
+});
+
+test('every version probe is accepted', () => {
+  for (const probe of VERSION_PROBES) validate(doc({ dev: { requires: [{ ...tool, version_command: ['node', probe] }] } }), 'f');
+  validate(doc({ dev: { requires: [{ ...tool, version_command: ['node'] }] } }), 'f');
+});
+
+test('a --file that is a dotenv file is refused without quoting it', async () => {
+  s.write('secrets.env', 'API_KEY=supersecret123\nK=hunter2pass\n');
+  for (const args of [['check', '--file', 'secrets.env'], ['profiles', '--file', 'secrets.env'], ['check', '--json', '--file', 'secrets.env']]) {
+    const r = await s.call(args);
+    assert.equal(r.code, 1, args.join(' '));
+    assert.match(r.stderr, /secrets\.env: not valid JSON$/m);
+    for (const leak of ['API_KEY', 'supersecret', 'super', 'hunter2']) {
+      assert.ok(!r.stdout.includes(leak) && !r.stderr.includes(leak), `${args.join(' ')} printed ${leak}: ${r.stderr}`);
+    }
+  }
 });
 
 test('a profile may be named default or secret: names are not values', () => {

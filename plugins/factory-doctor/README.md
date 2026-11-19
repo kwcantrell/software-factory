@@ -25,8 +25,11 @@ The factory line's builder and verifier run the check first (see [The factory li
   prints the fix; the person acts on it. Installing a plugin stays with `claude plugin install` (or
   `factory-plugin-discover install`).
 - **Run anything but the tool it checks.** A `tool`'s version is read by running that tool, the file
-  found on `PATH`, with the arguments in its `version_command` (default `--version`), without a
-  shell; a `version_command` whose first word is another program is refused.
+  found on `PATH`, with the one argument in its `version_command` (default `--version`), without a
+  shell, from a neutral directory (the system temp dir, not the repository). That argument must be a
+  version probe (`--version`, `-version`, `-v`, `-V`, `version`, `-Version` or `--Version`); a
+  `version_command` naming another program, or with any other or further argument (`node -e ...`,
+  `python -c ...`, `node -r <module>`), is refused, so a committed file cannot make `check` run code.
 
 ## The file
 
@@ -85,7 +88,8 @@ relative to the repository root, and `~/` is the home directory. Format version 
   in one profile are refused.
 - **`tool`**: `name`, a command on `PATH` (no path); optional `version`, `>=1.2.3`, `^1.2.3` (same
   major; for 0.x, same minor) or an exact `1.2.3` (fewer parts match more: `22` is any 22.x);
-  optional `version_command` (the tool first, then its arguments) and `version_pattern` (a regex
+  optional `version_command` (the tool, then at most one version probe such as `-version`; see
+  "What it never does") and `version_pattern` (a regex
   whose first group is the version; by default the first `1.2.3`-like number of the output).
 - **`env`**: `name`, a variable name; optional `description`; optional `format`, `non-empty`, `url`,
   `integer` or `{"regex": "..."}` (tested with `RegExp.test`, so anchor it yourself). Checked in the
@@ -114,7 +118,7 @@ or from a checkout with `node plugins/factory-doctor/src/cli.ts <command>`. Ever
 | `check [<profile>]` | Resolves the profile with its `extends` and checks each requirement: one line per requirement, `ok`, `missing` or `wrong`, and a `fix:` line for each problem. Exit 0 when everything required is in place (on stdout); exit 1 when anything required is missing or wrong (the report on stderr, stdout empty). The profile: the argument, else `$FACTORY_DOCTOR_PROFILE`, else `default_profile`; one that does not exist is a usage error (exit 2) that lists the profiles. No file: exit 1, pointing at `scan` and `init` |
 | `scan` | Read-only. Proposes requirements not yet recorded, numbered, each with its `source` (file:line), the profile it suggests and why. Sources: env names in `.env.example`, `.env.sample`, `.env.<profile>.example` and real `.env*` files (names only), `process.env.X` / `process.env['X']`, `os.environ[...]`, `os.environ.get(...)`, `os.getenv(...)` in JS/TS/Python, `${X}` in compose files; tools from `package.json` `engines` and `packageManager`, `.nvmrc`, `.node-version`, `.tool-versions`, `.python-version`, Dockerfile `FROM` (docker, and the runtime of a known image), and well-known CLIs in `run:` steps of `.github/workflows/*.yml` (for the `test` profile); profiles from `.env.<name>` and `.env.<name>.example` file names and `NODE_ENV`/`APP_ENV`-style values. Skips `node_modules`, build output, hidden directories but `.github`, and the factory's runtime dir. A proposal's number holds while the repository's files stay the same, also after others are added |
 | `profiles` | Lists the profiles: default, `extends`, description, requirement count with parents |
-| `add <kind> <name> --profile <p> --why "<text>"` | Adds a requirement. Options: `--source <file:line>`, `--optional`; env: `--description`, `--format non-empty\|url\|integer\|regex:<re>`; tool: `--tool-version <c>`, `--version-command "<tool> <args>"`, `--version-pattern <re>`. A service is named `<host>:<port>`, a file by its path. `add profile <name> [--description] [--extends a,b]` adds a profile. Refuses one already recorded in the profile or inherited |
+| `add <kind> <name> --profile <p> --why "<text>"` | Adds a requirement. Options: `--source <file:line>`, `--optional`; env: `--description`, `--format non-empty\|url\|integer\|regex:<re>`; tool: `--tool-version <c>`, `--version-command "<tool> <probe>"` (one version probe, as above), `--version-pattern <re>`. A service is named `<host>:<port>`, a file by its path. `add profile <name> [--description] [--extends a,b]` adds a profile. Refuses one already recorded in the profile or inherited |
 | `add --from-scan <n> [--profile <p>] [--why "<text>"]` | Adds proposal `n` of `scan` (it scans again to find it), with its source |
 | `remove <kind> <name> --profile <p>` | Removes a requirement from that profile (refused when it is inherited: remove it where it is declared); `remove profile <name>` (refused while another profile extends it or it is the default) |
 | `init` | Writes a starter file with `dev` (dotenv `.env`) and `test` (extends dev) profiles; refused when the file exists |

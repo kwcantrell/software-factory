@@ -54,7 +54,7 @@ Options:
   --description <text>       add env, add profile: what it is
   --format <f>               add env: non-empty, url, integer or regex:<pattern>
   --tool-version <c>         add tool: >=1.2.3, ^1.2 or 1.2.3
-  --version-command <cmd>    add tool: how to print its version (the tool first; default <tool> --version)
+  --version-command <cmd>    add tool: "<tool> <probe>", the probe one of --version -version -v -V version (default <tool> --version)
   --version-pattern <re>     add tool: a regex whose first group is the version
   --extends <a,b>            add profile: the profiles it extends
   --from-scan <n>            add: proposal <n> from scan
