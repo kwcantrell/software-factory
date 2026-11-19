@@ -28,7 +28,14 @@ export interface Signing {
 
 export const UNSIGNED: Signing = { args: [], problem: null };
 
-let current: Signing = UNSIGNED;
+/**
+ * Until a command chooses (factory.ts `signFor`), a state commit is refused rather than made
+ * unsigned: a command that forgot to choose would otherwise leave a commit merge refuses for good.
+ */
+let current: Signing = {
+  args: null,
+  problem: 'internal error: this command did not choose how to sign state commits (src/signing.ts useSigning); nothing was committed',
+};
 
 /** Set how this process signs the state commits it makes (factory.ts, before any state change). */
 export function useSigning(signing: Signing): void {
@@ -39,6 +46,17 @@ export function useSigning(signing: Signing): void {
 export function commitArgs(): string[] {
   if (current.args === null) throw new Refused(current.problem ?? 'state commits must be signed');
   return current.args.length > 0 ? [...current.args, 'commit', '-S'] : ['commit'];
+}
+
+/**
+ * The git arguments that replay local state commits onto the remote's tip: `[...settings, 'rebase',
+ * '--gpg-sign']`, or `['rebase']` unsigned. `git rebase` writes new commits and, without these, would
+ * drop the signatures of the commits it replays. Refused, like a commit, when signing is required but
+ * not set up.
+ */
+export function rebaseArgs(): string[] {
+  if (current.args === null) throw new Refused(current.problem ?? 'state commits must be signed');
+  return current.args.length > 0 ? [...current.args, 'rebase', '--gpg-sign'] : ['rebase'];
 }
 
 function gitConfig(key: string, cwd: string): string {
@@ -103,6 +121,44 @@ const REASONS: Record<string, string> = {
   E: 'has a signature that cannot be checked (is ssh-keygen installed?)',
 };
 
+const KINDS: Record<string, string> = {
+  openpgp: 'an OpenPGP signature, which',
+  x509: 'an X.509 signature, which',
+  unknown: 'a signature of an unknown kind, which',
+};
+
+const SIGNATURE_KIND: Record<string, string> = {
+  '-----BEGIN SSH SIGNATURE-----': 'ssh',
+  '-----BEGIN PGP SIGNATURE-----': 'openpgp',
+  '-----BEGIN SIGNED MESSAGE-----': 'x509',
+};
+
+/**
+ * The kind of signature each commit carries, read from its raw `gpgsig` header. Git picks the
+ * verifier from the signature itself, so an OpenPGP or X.509 signature is checked against the
+ * merger's own keyring, not the allowed-signers file, and can come back good (`G`) for a key that
+ * was never listed. Only an SSH signature is checked against the file.
+ */
+function signatureKinds(dir: string, shas: string[]): Map<string, string> {
+  const p = spawnSync('git', ['cat-file', '--batch'], { cwd: dir, input: `${shas.join('\n')}\n`, maxBuffer: 256 * 1024 * 1024 });
+  if (p.error || p.status !== 0) throw new Refused(`cannot read the state commits in ${dir}: ${(p.stderr?.toString() || p.error?.message || '').trim()}`);
+  const out = p.stdout;
+  const kinds = new Map<string, string>();
+  let at = 0;
+  for (const sha of shas) {
+    const eol = out.indexOf(0x0a, at);
+    const [got = '', type = '', size = ''] = out.subarray(at, eol).toString('utf8').split(' ');
+    if (got !== sha || type !== 'commit') throw new Refused(`cannot read state commit ${sha.slice(0, 12)} in ${dir}`);
+    const body = out.subarray(eol + 1, eol + 1 + Number(size)).toString('utf8');
+    at = eol + 1 + Number(size) + 1;
+    const header = body.slice(0, body.indexOf('\n\n') === -1 ? body.length : body.indexOf('\n\n'));
+    // Every signature header must be SSH (a commit may carry a second one, gpgsig-sha256).
+    const found = [...header.matchAll(/^gpgsig(?:-sha256)? (.*)$/gm)].map((m) => SIGNATURE_KIND[(m[1] ?? '').trim()] ?? 'unknown');
+    kinds.set(sha, found.length === 0 ? 'none' : (found.find((k) => k !== 'ssh') ?? 'ssh'));
+  }
+  return kinds;
+}
+
 /** Control characters and the like from a commit subject the branch's pushers wrote: never printed raw. */
 const shown = (text: string): string => JSON.stringify(text.length > 80 ? `${text.slice(0, 77)}...` : text);
 
@@ -130,10 +186,15 @@ export function verifyJobHistory(dir: string, jobId: string, signers: string, si
     }
     const commits = p.stdout.split('\x1e').map((r) => r.trim()).filter(Boolean);
     if (commits.length === 0) throw new Refused(`${jobId} has no commit on the state branch in ${dir}; nothing to verify, refusing to merge`);
+    const kinds = signatureKinds(dir, commits.map((r) => r.split('\x1f')[0] ?? ''));
     for (const record of commits) {
       const [sha = '', status = '', key = '', subject = ''] = record.split('\x1f');
-      if (status === 'G') continue;
-      const why = REASONS[status] ?? `has a signature git reports as '${status}'`;
+      const kind = kinds.get(sha) ?? 'unknown';
+      if (status === 'G' && kind === 'ssh') continue;
+      const why =
+        kind !== 'ssh' && kind !== 'none'
+          ? `has ${KINDS[kind] ?? KINDS.unknown} git checks without the allowed-signers file, so it is not accepted (only SSH signatures are)`
+          : (REASONS[status] ?? `has a signature git reports as '${status}'`);
       throw new Refused(
         `refusing to merge ${jobId}: state commit ${sha.slice(0, 12)} (${shown(subject)}) ${why}` +
           `${status === 'U' && key ? ` (${key}; allowed signers: ${signersName})` : ''}. ` +

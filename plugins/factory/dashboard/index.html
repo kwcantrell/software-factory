@@ -210,7 +210,8 @@ async function listDir(url) {
   return [...doc.querySelectorAll('a')].map(a => a.getAttribute('href'))
     .filter(h => h && !/^([?/#.]|[a-z]+:)/i.test(h));
 }
-// Why a job.json is not one the board can show ('' when it is), as the CLI's listings judge it: one
+// Why a job.json is not one the board can show ('' when it is), as the CLI's listings judge it (a copy
+// of checkJob in src/factory.ts: change both together): one
 // bad job on a shared state branch is skipped, never allowed to take the board down. Older job.json
 // files without followups (or owner) are fine.
 function jobProblem(j, dir) {

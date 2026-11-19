@@ -463,7 +463,10 @@ export function load(root: string, jobId: string): Job {
   return job;
 }
 
-/** The fields commands and listings read, checked to be the types the CLI writes. */
+/**
+ * The fields commands and listings read, checked to be the types the CLI writes. The dashboard's
+ * `jobProblem` (dashboard/index.html) is a copy of these rules: change both together.
+ */
 function checkJob(where: string, jobId: string, data: unknown): Job {
   const bad = (what: string): Refused => new Refused(`${where} is not a job record the factory wrote: ${what}; fix or remove it`);
   const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -485,6 +488,10 @@ function checkJob(where: string, jobId: string, data: unknown): Job {
   return data as unknown as Job;
 }
 
+/** `text` with its control characters (terminal escapes, newlines) shown as `\\uXXXX`. */
+const printable = (text: string): string =>
+  text.replace(/[\u0000-\u001f\u007f-\u009f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+
 /**
  * Every job in `ids` that loads; one stderr warning per job that does not (its directory and why),
  * so one bad job.json on a shared state branch cannot take a listing down for every other job.
@@ -496,7 +503,8 @@ function loadListed(root: string, ids: string[], io: Io): Job[] {
       jobs.push(load(root, id));
     } catch (error) {
       if (!(error instanceof Refused)) throw error;
-      io.stderr(`factory: skipping ${join(root, 'jobs', id)}: ${error.message}\n`);
+      // The reason can quote the file, which whoever pushes to the state branch wrote: no raw control characters.
+      io.stderr(`factory: skipping ${printable(`${join(root, 'jobs', id)}: ${error.message}`)}\n`);
     }
   }
   return jobs;

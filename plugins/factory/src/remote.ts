@@ -11,7 +11,7 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve as resolvePath } from 'node:path';
 import { now, Refused } from './errors.ts';
-import { commitArgs } from './signing.ts';
+import { commitArgs, rebaseArgs } from './signing.ts';
 
 export interface RemoteConfig {
   /** A git URL or path. A path starting with ./ or ../ is relative to factory.json's directory. */
@@ -490,7 +490,8 @@ function integrate(dir: string, remote: RemoteConfig): void {
       uniq(dirty.map(jobOf)),
     );
   }
-  const p = sh(['rebase', '-q', '--autostash', theirs], dir);
+  // Signed as this person's commits are (src/signing.ts): a plain rebase would push them unsigned.
+  const p = sh([...rebaseArgs(), '-q', '--autostash', theirs], dir);
   if (p.status !== 0) {
     sh(['rebase', '--abort'], dir);
     throw new Conflict(`could not replay local state commits onto ${remote.branch}: ${said(p)}`);

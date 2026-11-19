@@ -293,7 +293,7 @@ test('check: no agent may pre-approve or run merge, approve, rework or close', w
   writeAgent(r, 'reviewer-security', withTools(`Read, Bash(${INVOCATION} status:*)`));
   r.ok(['agents', 'check']);
   writeAgent(r, 'reviewer-security', text.replace(/^color: .*$/m, 'color: red\npermissionMode: bypassPermissions'));
-  onlyProblem(r, /permissionMode 'bypassPermissions' may skip the merge, approve and rework permission prompts/);
+  onlyProblem(r, /permissionMode 'bypassPermissions' may skip the human-gate permission prompts \(merge, approve, rework, close\)/);
   writeAgent(r, 'reviewer-security', `${text}\nWhen you approve, run \`factory merge <job id>\` too.\n`);
   onlyProblem(r, /runs the human-only command factory merge/);
   writeAgent(r, 'reviewer-security', `${text}\nIf the job is not worth it, run \`factory close <job id> not needed\`.\n`);
@@ -318,7 +318,7 @@ test('check: the human gates hold whatever YAML form the frontmatter uses', with
   // Quoted permission modes, and modes not on the safe list (a block scalar included).
   for (const mode of ['"bypassPermissions"', "'bypassPermissions'", 'auto', '>-\n  bypassPermissions']) {
     writeAgent(r, 'reviewer-security', withFrontmatter(`permissionMode: ${mode}`));
-    onlyProblem(r, /frontmatter permissionMode '.*' may skip the merge, approve and rework permission prompts/);
+    onlyProblem(r, /frontmatter permissionMode '.*' may skip the human-gate permission prompts \(merge, approve, rework, close\)/);
   }
   for (const mode of ['default', '"plan"', 'acceptEdits', 'dontAsk']) {
     writeAgent(r, 'reviewer-security', withFrontmatter(`permissionMode: ${mode}`));

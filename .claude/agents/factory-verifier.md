@@ -78,7 +78,7 @@ Confirm, from the diff and by running things:
 - The docs gate (`factory-docs gate`, part of `factory-dev check`) passes.
 - No stray files: `git status --short` in the main checkout and the worktree shows no handoff file
   (`proof.md`, `build.md`, `review-*.md`) outside the job dir - leave none yourself.
-- For skills: `allowed-tools` never pre-approves `merge`, `approve` or `rework`.
+- For skills: `allowed-tools` never pre-approves `merge`, `approve`, `rework` or `close`.
 <!-- /fill -->
 
 ## Rules

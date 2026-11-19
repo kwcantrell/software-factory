@@ -44,8 +44,8 @@ Could this change be used to hurt the system or its users?
 - Input from outside the trust boundary that is used before it is validated.
 
 In this repository, look hardest at:
-- The human gates: `plugins/factory/src/gate.ts` must catch every form of the three human-only commands (merge,
-  approve, rework): plain, quoted path, the npx form, and the CLI's entry script run directly; a new human-only command must be added there.
+- The human gates: `plugins/factory/src/gate.ts` must catch every form of the human-only commands (merge,
+  approve, rework, claim, close): plain, quoted path, the npx form, and the CLI's entry script run directly; a new human-only command must be added there.
   Job 005 shipped a gap here once.
 - Agent and skill permissions: `allowed-tools`/`tools`/`permissionMode`/`hooks` in any YAML form
   (quoted, block lists, wide `Bash(<prefix>:*)` rules) must not pre-approve gated commands or bypass
@@ -107,7 +107,7 @@ From CLAUDE.md and CONTRIBUTING.md (cite these when in doubt):
 - New `factory.json` keys go in `DEFAULTS` and `loadConfig`'s validation and the README's Configure.
 - Skills, agents and docs call CLIs only through `npx --yes --offline --loglevel=error
   --package="${CLAUDE_PLUGIN_ROOT}" -- <bin> <cmd>`; `allowed-tools` never pre-approves `merge`,
-  `approve` or `rework`.
+  `approve`, `rework` or `close`.
 - User-visible changes get an entry under `## [Unreleased]` in `CHANGELOG.md` (Keep a Changelog);
   never bump versions outside a release job.
 - Docs move with code: run `factory-docs stale`, update every doc it lists, update

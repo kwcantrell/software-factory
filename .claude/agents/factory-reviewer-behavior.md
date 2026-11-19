@@ -97,7 +97,7 @@ From CLAUDE.md and CONTRIBUTING.md (cite these when in doubt):
 - New `factory.json` keys go in `DEFAULTS` and `loadConfig`'s validation and the README's Configure.
 - Skills, agents and docs call CLIs only through `npx --yes --offline --loglevel=error
   --package="${CLAUDE_PLUGIN_ROOT}" -- <bin> <cmd>`; `allowed-tools` never pre-approves `merge`,
-  `approve` or `rework`.
+  `approve`, `rework` or `close`.
 - User-visible changes get an entry under `## [Unreleased]` in `CHANGELOG.md` (Keep a Changelog);
   never bump versions outside a release job.
 - Docs move with code: run `factory-docs stale`, update every doc it lists, update

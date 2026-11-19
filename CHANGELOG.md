@@ -17,7 +17,8 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   as committed at HEAD of the project checkout, never from the state branch; it also refuses a
   `job.json` edited in the state checkout but not committed. Without `allowed_signers` merge
   refuses and says how to set it up; the new `remote.unsigned_ok: true` turns signing and the check
-  off, which the README warns against. SSH signing only; GPG is refused.
+  off, which the README warns against. SSH signing only: merge refuses a state commit with an
+  OpenPGP or X.509 signature, and state commits replayed after a lost push race are re-signed.
 - factory-plugin-advisor: opt-in team sharing. With `factory.json` `"advisor": {"share": true}` and a
   remote factory, `record` and the hook also append each occurrence (already redacted and masked) to
   `advisor/occurrences.jsonl` on the state branch, and the issue state moves to

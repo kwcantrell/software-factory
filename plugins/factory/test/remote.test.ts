@@ -1164,6 +1164,64 @@ test('a hand-edited job.json committed outside the CLI with an allowed key passe
   assert.ok(existsSync(join(ann.repo, 'by-hand.txt')));
 }));
 
+test('a push that loses a race replays the state commit signed: every commit stays good and the job that lost merges', withWorld((w) => {
+  const ann = new Person(w, 'Ann');
+  const bob = new Person(w, 'Bob');
+  ann.ok(['init']);
+  bob.ok(['init']);
+  trust(ann, w, [ann, bob]);
+  trust(bob, w, [ann, bob]);
+  const a = ann.newJob('Anns job');
+  const b = bob.startedJob('Bobs job');
+  bob.raceWith(ann, ['note', a, 'ann was first']);
+  bob.ok(['note', b, 'bob second']);
+  assert.match(bob.raced(), /^0\n/);
+  assert.deepEqual(w.remote(['log', '-2', '--format=%s', BRANCH]).split('\n'), [`factory: note ${b}`, `factory: note ${a}`], 'Bob\'s commit was replayed');
+  assert.deepEqual(new Set(signatures(w, [ann, bob])), new Set(['G']), 'the replayed commit is signed too');
+  bob.assertInSync(w);
+  toShip(bob, b);
+  assert.match(bob.ok(['merge', b]), new RegExp(`${b} merged into main`));
+}));
+
+test('merge refuses a state commit with an OpenPGP signature, even one git calls good', { skip: spawnSync('gpg', ['--version']).status !== 0 && 'gpg is not installed' }, withWorld((w) => {
+  const ann = new Person(w, 'Ann');
+  ann.ok(['init']);
+  trust(ann, w, [ann]);
+  const id = ann.startedJob('Signed with GPG');
+  const wt = ann.job(id).worktree as string;
+  writeFileSync(join(wt, 'gpg.txt'), 'x\n');
+  ann.git(['add', 'gpg.txt'], wt);
+  ann.git(['commit', '-q', '-m', 'x'], wt);
+  // A throwaway GnuPG key in the home every process here shares (HOME is the temp dir): the merger's
+  // own keyring trusts it ultimately, so git reports its signature as good ('G').
+  const gnupg = join(w.tmp, '.gnupg');
+  mkdirSync(gnupg, { mode: 0o700 });
+  const gpg = (args: string[]): void => {
+    const p = spawnSync('gpg', ['--batch', '--pinentry-mode', 'loopback', '--passphrase', '', ...args], { env: w.env, encoding: 'utf8' });
+    assert.equal(p.status, 0, `gpg ${args.join(' ')}: ${p.stderr}`);
+  };
+  try {
+    gpg(['--quick-gen-key', 'Mallory <mallory@example.invalid>', 'ed25519', 'sign', 'never']);
+    const m = intruder(w);
+    m.git(['pull', '-q', '--ff-only']);
+    m.edit(`${id}/job.json`, forgedApproval);
+    m.git(['add', '-A']);
+    m.git(['-c', 'gpg.format=openpgp', '-c', 'user.signingkey=mallory@example.invalid', 'commit', '-S', '-q', '-m', 'hand edit']);
+    m.git(['push', '-q', 'origin', BRANCH]);
+    const forged = m.git(['rev-parse', 'HEAD']);
+    const empty = join(w.tmp, 'no_signers');
+    writeFileSync(empty, '');
+    assert.equal(w.remote(['-c', `gpg.ssh.allowedSignersFile=${empty}`, 'log', '-1', '--format=%G?', BRANCH]), 'G', 'git alone calls it good');
+    ann.ok(['status']);
+    assert.equal(ann.job(id).stage, 'ship');
+    ann.refused(['merge', id], new RegExp(`state commit ${forged.slice(0, 12)} \\("hand edit"\\) has an OpenPGP signature, which git checks without the allowed-signers file, so it is not accepted`));
+    assert.equal(existsSync(join(ann.repo, 'gpg.txt')), false, 'nothing was merged');
+    assert.equal(ann.job(id).stage, 'ship');
+  } finally {
+    spawnSync('gpgconf', ['--kill', 'all'], { env: w.env });
+  }
+}));
+
 test('merge refuses a job.json changed in the state checkout but not committed', withWorld((w) => {
   const ann = new Person(w, 'Ann');
   ann.ok(['init']);

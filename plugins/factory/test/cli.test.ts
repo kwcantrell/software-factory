@@ -449,13 +449,16 @@ test('status, stats and followup list skip a job whose job.json fails validation
   const broken = r.newJob('Broken JSON');
   const odd = r.newJob('Odd shape');
   const last = r.newJob('Good too');
-  writeFileSync(join(r.jobDir(broken), 'job.json'), '{"id": ');
+  // A terminal escape in the file: the warning quotes the parse error, which quotes the file.
+  writeFileSync(join(r.jobDir(broken), 'job.json'), '{"id": \x1b[31mRED');
   const shape = r.job(odd);
   shape.stage = 'shipped-somewhere';
   writeFileSync(join(r.jobDir(odd), 'job.json'), JSON.stringify(shape));
   const warned = (stderr: string): void => {
     const lines = stderr.split('\n').filter(Boolean);
     assert.equal(lines.length, 2, stderr);
+    assert.doesNotMatch(stderr, /\x1b/, 'no raw control characters from job.json reach the terminal');
+    assert.match(lines[0] as string, /\\u001b/);
     assert.match(lines[0] as string, new RegExp(`^factory: skipping .*/jobs/${broken}: .*job\\.json is not valid JSON`));
     assert.match(lines[1] as string, new RegExp(`^factory: skipping .*/jobs/${odd}: .*'stage' is "shipped-somewhere"`));
   };
