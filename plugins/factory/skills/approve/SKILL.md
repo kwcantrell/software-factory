@@ -1,4 +1,5 @@
 ---
+name: approve
 description: Human spec gate for the software factory. Approves a job's task.md so it can be built, or sends it back with changes.
 argument-hint: <job id> [changes <what to change>]
 disable-model-invocation: true

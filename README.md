@@ -120,7 +120,7 @@ factory followup drop 12 3 not worth it
 ## Layout
 
 ```
-.claude-plugin/marketplace.json            marketplace "software-factory", listing plugins/factory
+.claude-plugin/marketplace.json            marketplace "software-factory", listing plugins/factory and plugins/factory-plugin-builder
 plugins/factory/                           the plugin
   .claude-plugin/plugin.json               manifest (plugin name: factory)
   package.json                             "bin": {"factory": "src/cli.ts"}; no dependencies
@@ -133,7 +133,9 @@ plugins/factory/                           the plugin
   hooks/hooks.json, src/human-gate.ts      human-gate hook (merge, spec approval, rework)
   dashboard/index.html                     the dashboard
   test/                                    node:test suites (CLI, npx, hook, dashboard, compatibility)
-package.json, tsconfig.json                dev tooling only: typecheck and tests
+plugins/factory-plugin-builder/            builds plugins for this marketplace: new, check (the CLI convention), verify
+templates/plugin/                          the template `npm run new-plugin -- <name>` copies (not in the marketplace)
+package.json, tsconfig.json                dev tooling only: typecheck, tests, new-plugin
 scripts/check.sh                           every CI check in one command
 scripts/release.py, tests/                 tag/version check and release notes; their tests
 docs/research/                             the build-vs-buy research behind the design

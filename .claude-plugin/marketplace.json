@@ -12,6 +12,12 @@
       "source": "./plugins/factory",
       "description": "Software Factory: a multi-agent line with isolated builds, independent proof, three reviewers and a human merge gate",
       "license": "MIT"
+    },
+    {
+      "name": "factory-plugin-builder",
+      "source": "./plugins/factory-plugin-builder",
+      "description": "Builds software-factory plugins: scaffolds one from the template, checks plugins against the CLI convention with a fix per finding, and runs a plugin's full verification gate",
+      "license": "MIT"
     }
   ]
 }

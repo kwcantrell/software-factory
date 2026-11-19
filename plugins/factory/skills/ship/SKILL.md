@@ -1,4 +1,5 @@
 ---
+name: ship
 description: Human merge gate for the software factory. Shows an approved job's ship summary and merges or rejects it.
 argument-hint: <job id> [reject <reason>]
 disable-model-invocation: true

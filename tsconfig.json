@@ -18,6 +18,6 @@
     "isolatedModules": true,
     "skipLibCheck": true
   },
-  "include": ["plugins/*/**/*.ts"],
+  "include": ["plugins/*/**/*.ts", "templates/*/**/*.ts"],
   "exclude": ["**/node_modules"]
 }

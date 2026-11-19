@@ -32,6 +32,15 @@ and the plugin follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- `factory-plugin-builder` plugin (`/plugin install factory-plugin-builder@software-factory`): a
+  TypeScript CLI run through npx with `new <name>` (scaffold `plugins/<name>/` from the new
+  `templates/plugin/` and list it in the marketplace; also `npm run new-plugin -- <name>`),
+  `check <name>... | --all` (the "Plugin layout" and "CLI convention" now written down in
+  `CLAUDE.md`, rule by rule, with a fix for every finding) and `verify <name>` (check, `claude
+  plugin validate`, typecheck and the plugin's tests). Its `build-plugin` skill walks an agent from
+  an idea to a passing plugin.
+- The `factory` skills name themselves in their frontmatter, and a test runs every skill command
+  line through npx, so `factory` passes the convention check.
 - MIT license.
 - `scripts/check.sh`, one command for every check CI runs, and a `unittest` suite for the CLI and
   the release script under `tests/`.
