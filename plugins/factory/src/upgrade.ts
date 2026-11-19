@@ -5,12 +5,14 @@
 //     factory@<any marketplace but software-factory>) are switched to factory@software-factory;
 //   - runtime dir: factory/ written by the Python CLI gets the job fields, dashboard and .gitignore
 //     the current CLI writes, after the originals are copied to factory/upgrade-backup-<time>/;
+//     settings files are backed up outside factory/ (which the dashboard serves), in a private
+//     factory-upgrade-backup-<time>/ under the repo's git dir, since they can hold secrets;
 //   - manual steps: what it must not do itself (factory.json keys the CLI refuses, tracked files that
 //     still name the old CLI, `claude plugin` commands), listed with what to do.
 // It never runs `claude`, and changes user-scope settings only with an explicit --scope user.
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createHash, randomBytes } from 'node:crypto';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve as resolvePath } from 'node:path';
 import {
@@ -64,7 +66,10 @@ export interface Report {
   settings: { scope: Scope; file: string; selected: boolean; changes: string[] }[];
   runtime: { dir: string; changes: string[] };
   manual: string[];
+  /** Where the runtime dir's originals were copied, under factory/. */
   backup: string | null;
+  /** Where the changed settings files' originals were copied: a private dir in the git dir. */
+  settings_backup: string | null;
   changes: number;
   nothing_to_do: boolean;
 }
@@ -242,10 +247,27 @@ interface RuntimePlan {
   apply: (() => void)[];
 }
 
+/**
+ * Replace a file's content atomically. A symlink is followed, so the link stays and its target is
+ * rewritten; the file keeps its permission bits (a 0600 settings file stays 0600). The temp file
+ * gets a random name and is created exclusively, so nothing already at that name is followed.
+ */
 function writeAtomic(path: string, text: string): void {
-  const tmp = `${path}.upgrade.tmp`;
-  writeFileSync(tmp, text);
-  renameSync(tmp, path);
+  const target = existsSync(path) ? realpathSync(path) : path;
+  const mode = existsSync(target) ? statSync(target).mode & 0o7777 : 0o666;
+  const tmp = join(dirname(target), `.${basename(target)}.upgrade-${randomBytes(6).toString('hex')}.tmp`);
+  writeFileSync(tmp, text, { flag: 'wx', mode: 0o600 });
+  try {
+    chmodSync(tmp, mode);
+    renameSync(tmp, target);
+  } catch (error) {
+    try {
+      unlinkSync(tmp);
+    } catch {
+      // already gone
+    }
+    throw error;
+  }
 }
 
 function planRuntime(root: string, found: string[]): RuntimePlan {
@@ -403,7 +425,7 @@ function manualSteps(
     steps.push(`${hit}\n    names the old plugin or CLI: point it at ${NEW_PLUGIN} and the npx CLI, or leave it if it only records history`);
   }
 
-  const repoFlag = opts.repo ? ` --repo ${JSON.stringify(repo)}` : '';
+  const repoFlag = opts.repo ? ` --repo ${shellQuote(repo)}` : '';
   for (const plan of settings) {
     if (plan.selected || plan.changes.length === 0) continue;
     steps.push(
@@ -450,11 +472,23 @@ function manualSteps(
 
 // ---------------------------------------------------------------- the command
 
-function backupDir(root: string): string {
+/** A path quoted for a POSIX shell: single quotes, so nothing in it is expanded. */
+function shellQuote(s: string): string {
+  return /^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replaceAll("'", `'\\''`)}'`;
+}
+
+function backupDir(parent: string, name: string): string {
   const stamp = now().replace(/[-:]/g, '');
-  let dir = join(root, `upgrade-backup-${stamp}`);
-  for (let n = 2; existsSync(dir); n++) dir = join(root, `upgrade-backup-${stamp}-${n}`);
+  let dir = join(parent, `${name}-${stamp}`);
+  for (let n = 2; existsSync(dir); n++) dir = join(parent, `${name}-${stamp}-${n}`);
   return dir;
+}
+
+/** The repo's git dir (shared by its worktrees): private to the checkout and never committed. */
+function gitDir(repo: string): string {
+  const p = spawnSync('git', ['rev-parse', '--git-common-dir'], { cwd: repo, encoding: 'utf8' });
+  if (p.error || p.status !== 0) throw new Refused(`cannot find the git dir of ${repo}: ${(p.stderr || '').trim()}`);
+  return resolvePath(repo, p.stdout.trim());
 }
 
 export function upgrade(opts: UpgradeOptions): Report {
@@ -470,18 +504,30 @@ export function upgrade(opts: UpgradeOptions): Report {
   const changes = toWrite.reduce((n, p) => n + p.changes.length, 0) + runtime.changes.length;
 
   let backup: string | null = null;
+  let settingsBackup: string | null = null;
   if (opts.apply && changes > 0) {
+    // Originals first: nothing is changed until every one of them is copied.
+    const settingsToBackUp = toWrite.filter((p) => existsSync(p.path));
+    if (settingsToBackUp.length > 0) {
+      // Not under factory/, which `factory dashboard` serves: settings can hold secrets (env,
+      // apiKeyHelper). The dir is 0700 and each copy keeps its original's mode.
+      const dir = backupDir(gitDir(repo), 'factory-upgrade-backup');
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      chmodSync(dir, 0o700);
+      for (const p of settingsToBackUp) {
+        const copy = join(dir, p.scope, basename(p.path));
+        mkdirSync(dirname(copy), { mode: 0o700 });
+        copyFileSync(p.path, copy);
+        chmodSync(copy, statSync(p.path).mode & 0o7777);
+      }
+      settingsBackup = dir;
+    }
     if (existsSync(root)) {
-      // Originals first: nothing is changed until every one of them is copied.
-      if (runtime.originals.length > 0 || toWrite.length > 0) {
-        const dir = backupDir(root);
+      if (runtime.originals.length > 0) {
+        const dir = backupDir(root, 'upgrade-backup');
         for (const rel of runtime.originals) {
           mkdirSync(dirname(join(dir, rel)), { recursive: true });
           copyFileSync(join(root, rel), join(dir, rel));
-        }
-        for (const p of toWrite) {
-          mkdirSync(join(dir, 'settings', p.scope), { recursive: true });
-          copyFileSync(p.path, join(dir, 'settings', p.scope, basename(p.path)));
         }
         backup = dir;
       }
@@ -503,6 +549,7 @@ export function upgrade(opts: UpgradeOptions): Report {
     runtime: { dir: root, changes: runtime.changes },
     manual,
     backup,
+    settings_backup: settingsBackup,
     changes,
     nothing_to_do: changes === 0,
   };
@@ -536,6 +583,7 @@ export function formatReport(r: Report): string {
   lines.push('');
 
   if (r.backup) lines.push(`backup of the originals: ${r.backup}`);
+  if (r.settings_backup) lines.push(`backup of the settings files: ${r.settings_backup}`);
   if (r.nothing_to_do) {
     lines.push(`nothing to do: the settings and runtime dir are current${r.manual.length > 0 ? ` (${r.manual.length} manual step(s) listed above)` : ''}`);
   } else if (dry) {

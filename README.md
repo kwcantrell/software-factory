@@ -54,7 +54,10 @@ It runs `factory upgrade`, a dry run that writes nothing, and shows the plan in 
   `software-factory` where it declared the old marketplace. Other plugins and marketplaces
   (`base-setup@kwcantrell-plugins`, say) stay. User settings (`$CLAUDE_CONFIG_DIR/settings.json`,
   else `~/.claude/settings.json`) change only with `--scope user`, which the skill asks about
-  separately;
+  separately. The originals of the settings files it changes are copied first to a private
+  `factory-upgrade-backup-<time>/` (mode 0700) in the repo's git dir, not under `factory/`, which
+  the dashboard serves, since settings can hold secrets; rewritten files keep their mode and
+  symlinks;
 - **runtime dir**: in `factory/`, each `job.json` gains the fields the current CLI writes that it
   lacks (`followups: []` for the oldest jobs; existing values never change), `index.html` becomes
   the current dashboard, `.gitignore` is ensured and the old `.lock` file goes. The originals are

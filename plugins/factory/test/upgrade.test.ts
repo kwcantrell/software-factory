@@ -5,7 +5,7 @@
 // a temporary repo with FACTORY_DIR, HOME and CLAUDE_CONFIG_DIR inside it: none touches ~/.claude.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -371,14 +371,66 @@ for (const scope of ['project', 'local', 'user'] as const) {
   }));
 }
 
-test('settings are backed up with the runtime dir when there is one', withRepo((r) => {
+test('settings are backed up in a private dir under the git dir, never under factory/', withRepo((r) => {
   fromFixture(r, 'd7923b8');
   const path = join(r.repo, '.claude', 'settings.json');
   writeJson(path, { enabledPlugins: { [OLD_KEY]: true } });
   const before = readFileSync(path, 'utf8');
   const out = upgrade(r, ['--apply']);
-  const backup = /^backup of the originals: (.*)$/m.exec(out)?.[1] as string;
-  assert.equal(readFileSync(join(backup, 'settings', 'project', 'settings.json'), 'utf8'), before);
+  const runtime = /^backup of the originals: (.*)$/m.exec(out)?.[1] as string;
+  const backup = /^backup of the settings files: (.*)$/m.exec(out)?.[1] as string;
+  assert.ok(runtime.startsWith(join(r.fdir, 'upgrade-backup-')), out);
+  assert.equal(existsSync(join(runtime, 'settings')), false, 'settings copied into the dir the dashboard serves');
+  assert.ok(backup.startsWith(join(r.repo, '.git', 'factory-upgrade-backup-')), out);
+  assert.equal(readFileSync(join(backup, 'project', 'settings.json'), 'utf8'), before);
+  assert.equal(statSync(backup).mode & 0o777, 0o700);
+  assert.equal(r.git(['status', '--porcelain', '--', '.claude']), '?? .claude/', 'only the settings dir itself is new');
+  assert.equal(json(r, ['--apply']).settings_backup, null, 'a second --apply backed up again');
+}));
+
+test('a 0600 settings file stays 0600, and so does its backup', withRepo((r) => {
+  const dir = claudeDir(r);
+  const user = join(dir, 'settings.json');
+  const local = join(r.repo, '.claude', 'settings.local.json');
+  for (const path of [user, local]) {
+    writeJson(path, { env: { TOKEN: 'secret' }, enabledPlugins: { [OLD_KEY]: true } });
+    chmodSync(path, 0o600);
+  }
+  const report = json(r, ['--apply', '--scope', 'user', '--scope', 'local']);
+  assert.equal(report.changes, 2);
+  for (const path of [user, local]) {
+    assert.equal(statSync(path).mode & 0o777, 0o600, path);
+    assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')).enabledPlugins, { [NEW_KEY]: true });
+  }
+  assert.equal(statSync(join(report.settings_backup, 'user', 'settings.json')).mode & 0o777, 0o600);
+  assert.equal(statSync(join(report.settings_backup, 'local', 'settings.local.json')).mode & 0o777, 0o600);
+  assert.deepEqual(readdirSync(dir), ['settings.json'], 'a temp file was left behind');
+}));
+
+test('a symlinked settings file keeps its link; a file at the old temp name is not followed', withRepo((r) => {
+  const dir = claudeDir(r);
+  const real = join(r.tmp, 'dotfiles', 'settings.json');
+  writeJson(real, { enabledPlugins: { [OLD_KEY]: true } });
+  const link = join(dir, 'settings.json');
+  symlinkSync(real, link);
+  const decoy = join(r.tmp, 'decoy.txt');
+  writeFileSync(decoy, 'untouched\n');
+  symlinkSync(decoy, `${link}.upgrade.tmp`);
+  upgrade(r, ['--apply', '--scope', 'user']);
+  assert.ok(lstatSync(link).isSymbolicLink(), 'the symlink was replaced by a file');
+  assert.deepEqual(JSON.parse(readFileSync(real, 'utf8')).enabledPlugins, { [NEW_KEY]: true });
+  assert.equal(readFileSync(decoy, 'utf8'), 'untouched\n');
+}));
+
+test('a --repo path in a suggested command is single-quoted for the shell', withRepo((r) => {
+  const repo = join(r.tmp, 'it\'s $(x)');
+  mkdirSync(repo);
+  spawnSync('git', ['init', '-q', repo]);
+  writeJson(join(repo, '.claude', 'settings.json'), { enabledPlugins: { [OLD_KEY]: true } });
+  claudeDir(r);
+  r.env = { ...r.env, FACTORY_DIR: join(repo, 'factory') };
+  const out = upgrade(r, ['--repo', repo, '--scope', 'local']);
+  assert.ok(out.includes(`--scope project --repo '${r.tmp}/it'\\''s $(x)'\``), out);
 }));
 
 // ---------------------------------------------------------------- manual steps
