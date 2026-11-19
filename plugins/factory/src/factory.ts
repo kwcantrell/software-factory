@@ -63,7 +63,19 @@ export interface Config {
   specs_dir: string | null;
   /** Where the job state is shared (a git URL or path and a branch), or null for a local factory. */
   remote: RemoteConfig | null;
+  /**
+   * factory-plugin-advisor settings. `share`: with a `remote`, the advisor also keeps its redacted
+   * friction log and its state in the state branch's `advisor/` directory (the factory itself only
+   * validates this key and lets `advisor/` exist on the branch).
+   */
+  advisor: AdvisorConfig;
 }
+
+export interface AdvisorConfig {
+  share: boolean;
+}
+
+export const ADVISOR_KEYS = ['share'] as const;
 
 /** Defaults; a project overrides them in factory.json at the repository root. */
 export const DEFAULTS: Readonly<Config> = {
@@ -73,6 +85,7 @@ export const DEFAULTS: Readonly<Config> = {
   spec_gate: false,
   specs_dir: null,
   remote: null,
+  advisor: { share: false },
 };
 
 export const PLUGIN_ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -264,6 +277,15 @@ function checkConfigKey(path: string, key: string, value: unknown): void {
   } else if (key === 'remote') {
     const problem = remoteProblem(value);
     if (problem) throw new Refused(`${path}: ${problem}`);
+  } else if (key === 'advisor') {
+    const shape = `${path}: 'advisor' must be an object like {"share": true}`;
+    if (typeof value !== 'object' || value === null || Array.isArray(value) || value instanceof JsonFloat) throw new Refused(shape);
+    for (const sub of Object.keys(value)) {
+      if (!(ADVISOR_KEYS as readonly string[]).includes(sub)) {
+        throw new Refused(`${path}: 'advisor' has unknown key '${sub}' (known: ${ADVISOR_KEYS.join(', ')})`);
+      }
+    }
+    if (typeof (value as Record<string, unknown>).share !== 'boolean') throw new Refused(`${path}: 'advisor.share' must be true or false`);
   } else if (!(typeof value === 'number' && Number.isInteger(value) && value >= 1)) {
     throw new Refused(`${path}: '${key}' must be a whole number of at least 1`);
   }
@@ -285,7 +307,7 @@ function readConfig(path: string): Record<string, unknown> | null {
 }
 
 export function loadConfig(root: string): Config {
-  const cfg: Config = { ...DEFAULTS, reviewers: [...DEFAULTS.reviewers] };
+  const cfg: Config = { ...DEFAULTS, reviewers: [...DEFAULTS.reviewers], advisor: { ...DEFAULTS.advisor } };
   const path = configPath(root);
   const user = readConfig(path);
   if (user === null) return cfg;

@@ -21,7 +21,7 @@ import { type Env, marketplacePlugins, ownRoot, reservedNames } from './plugins.
 import { identityOf, osIdentity, type SystemIdentity } from './redact.ts';
 import { applyStation, type ApplyResult, dismissStation, type Line, locateFactory, locateRepo, stationsReport, type StationsReport, suggestStations, type SuggestResult } from './station-drafts.ts';
 import { DEFAULT_MIN } from './stations.ts';
-import { Store } from './store.ts';
+import { openStore } from './store.ts';
 
 export const CLI_NAME = 'factory-plugin-advisor';
 
@@ -86,7 +86,10 @@ Options:
   --version      Print the CLI version
 
 The log lives in $FACTORY_PLUGIN_ADVISOR_CONFIG_DIR, else $XDG_CONFIG_HOME/factory-plugin-advisor,
-else ~/.config/factory-plugin-advisor (owner-only), never inside a git checkout.
+else ~/.config/factory-plugin-advisor (owner-only), never inside a git checkout. With factory.json
+"advisor": {"share": true} and a remote factory, occurrences and issue state are also shared in
+advisor/ on the factory's state branch (see the README); set FACTORY_PLUGIN_ADVISOR_SHARE_AS=<name>
+to add that name to what you share.
 
 Exit codes: 0 success, 1 command failed, 2 usage error (message on stderr).
 `;
@@ -293,15 +296,31 @@ export function run(argv: readonly string[], io: Io): number {
   if (command === 'hook') {
     // Never fails and never prints: see hook.ts.
     try {
-      handleHookInput(io.stdin?.() ?? '', env, pluginRoot, now(), identity);
+      handleHookInput(io.stdin?.() ?? '', env, pluginRoot, now(), identity, io.cwd);
     } catch {
       // nothing recorded
     }
     return EXIT.ok;
   }
 
+  const store = openStore(env, io.cwd ?? process.cwd());
   try {
-    const store = new Store(env);
+    return dispatch();
+  } finally {
+    // Sharing only (factory.json advisor.share): the public-remote warning, and what the shared log could not do.
+    const lines = store.notes();
+    if (store.shared !== null) {
+      if (store.shared.share.byProblem !== undefined) lines.unshift(store.shared.share.byProblem);
+      if (command === 'record' || command === 'suggest') {
+        const warning = store.shared.warnOnce();
+        if (warning !== null) io.stderr(`${warning}\n`);
+      }
+    }
+    for (const line of lines) io.stderr(`${CLI_NAME}: ${line}\n`);
+  }
+
+  function dispatch(): number {
+  try {
     switch (command) {
       case 'record': {
         let input: RecordInput;
@@ -368,6 +387,7 @@ export function run(argv: readonly string[], io: Io): number {
     if (error instanceof UsageError) return usageError(io, error.message);
     io.stderr(`${CLI_NAME}: ${error instanceof Error ? error.message : String(error)}\n`);
     return EXIT.failure;
+  }
   }
 }
 

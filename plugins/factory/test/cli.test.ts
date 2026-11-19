@@ -189,7 +189,7 @@ test('config accepts valid values and rejects floats, bools and bad names', with
   const cfg = join(r.repo, 'factory.json');
   writeFileSync(cfg, '{"reviewers": ["a", "b-2"], "max_review_rounds": 5, "spec_gate": true, "specs_dir": "docs/specs"}');
   const ok = JSON.parse(r.ok(['config']));
-  assert.deepEqual(ok, { reviewers: ['a', 'b-2'], max_review_rounds: 5, max_proof_attempts: 3, spec_gate: true, specs_dir: 'docs/specs', remote: null });
+  assert.deepEqual(ok, { reviewers: ['a', 'b-2'], max_review_rounds: 5, max_proof_attempts: 3, spec_gate: true, specs_dir: 'docs/specs', remote: null, advisor: { share: false } });
   const bad: [string, RegExp][] = [
     ['{"max_review_rounds": 2.0}', /'max_review_rounds' must be a whole number of at least 1/],
     ['{"max_review_rounds": true}', /must be a whole number/],

@@ -6,6 +6,7 @@ import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, renameS
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { Env } from './plugins.ts';
+import { mergeState, newId, occurrenceKey, type ShareConfig, shareConfig, SharedLog } from './shared.ts';
 
 export class CliError extends Error {}
 
@@ -27,6 +28,10 @@ export interface Occurrence {
   /** Set by the hook: the plugin CLI's subcommand and exit code. */
   subcommand?: string;
   exitCode?: number;
+  /** Sharing on only: a random id, so an occurrence in both the local and the shared log counts once. */
+  id?: string;
+  /** Sharing on and FACTORY_PLUGIN_ADVISOR_SHARE_AS set only: the name the user chose to share. */
+  by?: string;
 }
 
 export interface IssueState {
@@ -128,14 +133,32 @@ export class Store {
   readonly statePath: string;
   readonly draftsDir: string;
 
+  /** The shared log in the remote factory, when factory.json turns sharing on (see shared.ts). */
+  readonly shared: SharedLog | null;
+
   private readonly others: string[];
 
-  constructor(env: Env) {
+  constructor(env: Env, share: ShareConfig | null = null) {
     this.dir = configDir(env);
     this.others = otherAdvisorDirs(env);
     this.logPath = join(this.dir, 'occurrences.jsonl');
     this.statePath = join(this.dir, 'state.json');
     this.draftsDir = join(this.dir, 'drafts');
+    this.shared =
+      share === null
+        ? null
+        : new SharedLog(this.dir, share, env, {
+            ensureDir: (dir) => {
+              this.prepare();
+              this.ensureDir(dir);
+            },
+            writeFile: (path, text) => this.writeFile(path, text),
+          });
+  }
+
+  /** One line each for stderr: what the shared log could not do (nothing when sharing is off). */
+  notes(): string[] {
+    return this.shared === null ? [] : [...new Set(this.shared.notes)];
   }
 
   /**
@@ -164,7 +187,13 @@ export class Store {
     this.ensureDir(this.dir);
   }
 
-  append(occurrence: Occurrence): void {
+  /**
+   * Appends to the local log; with sharing on, the occurrence (given an id, and the opted-in name)
+   * also goes to the queue and a sync pushes it. The shared side never throws.
+   */
+  append(entry: Occurrence): void {
+    const by = this.shared?.share.by;
+    const occurrence: Occurrence = this.shared === null ? entry : { ...entry, id: newId(), ...(by === undefined ? {} : { by }) };
     this.prepare();
     appendFileSync(this.logPath, `${JSON.stringify(occurrence)}\n`, { mode: FILE_MODE });
     chmodSync(this.logPath, FILE_MODE);
@@ -172,9 +201,33 @@ export class Store {
       const lines = readFileSync(this.logPath, 'utf8').split('\n').filter((l) => l !== '');
       this.writeFile(this.logPath, `${lines.slice(-MAX_LINES).join('\n')}\n`);
     }
+    if (this.shared !== null) {
+      try {
+        this.shared.queue(occurrence);
+      } catch (error) {
+        this.shared.notes.push(`shared log: cannot queue the occurrence: ${(error as Error).message}`);
+        return;
+      }
+      this.shared.sync();
+    }
   }
 
+  /** The local log, and with sharing on the shared one too; an occurrence in both counts once. */
   occurrences(): Occurrence[] {
+    const local = this.localOccurrences();
+    if (this.shared === null) return local;
+    const seen = new Set(local.map(occurrenceKey));
+    const out = [...local];
+    for (const o of this.shared.occurrences()) {
+      const key = occurrenceKey(o);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(o);
+    }
+    return out;
+  }
+
+  private localOccurrences(): Occurrence[] {
     let text: string;
     try {
       text = readFileSync(this.logPath, 'utf8');
@@ -195,7 +248,13 @@ export class Store {
     return out;
   }
 
+  /** The local state.json; with sharing on, merged with the shared one (so a teammate's dismiss counts). */
   state(): State {
+    const local = this.localState();
+    return this.shared === null ? local : mergeState(this.shared.state(), local);
+  }
+
+  private localState(): State {
     let text: string;
     try {
       text = readFileSync(this.statePath, 'utf8');
@@ -214,9 +273,11 @@ export class Store {
     throw new CliError(`${this.statePath} is not valid factory-plugin-advisor state; move it aside to start over`);
   }
 
+  /** Writes state.json; with sharing on, also merges it into the shared state.json and pushes it. */
   saveState(state: State): void {
     this.prepare();
     this.writeFile(this.statePath, `${JSON.stringify(state, null, 2)}\n`);
+    this.shared?.saveState(state);
   }
 
   draftPath(signature: string): string {
@@ -279,6 +340,20 @@ export class Store {
     chmodSync(tmp, FILE_MODE);
     renameSync(tmp, path);
   }
+}
+
+/**
+ * The store for a command run in `cwd`: sharing on when factory.json (FACTORY_DIR's parent, else the
+ * main checkout's) sets `"advisor": {"share": true}` and a `remote`; otherwise exactly the local log.
+ */
+export function openStore(env: Env, cwd: string): Store {
+  let share: ShareConfig | null = null;
+  try {
+    share = shareConfig(env, cwd);
+  } catch {
+    // no repository, no factory.json: local only
+  }
+  return new Store(env, share);
 }
 
 function isOccurrence(value: unknown): value is Occurrence {
