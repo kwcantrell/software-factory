@@ -1,6 +1,6 @@
 {
   "name": "factory-dev",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "private": true,
   "description": "CLI for the factory-dev Claude Code plugin (every CI check in one command, and the release tag/version check); run by its skill via npx.",
   "type": "module",

@@ -35,7 +35,7 @@ not run (CI adds `--require-claude`, which fails them instead).
 npx --yes --offline --loglevel=error --package="${CLAUDE_PLUGIN_ROOT}" -- factory-dev release <tag>
 ```
 
-`<tag>` is `v` + the version, e.g. `v0.3.1`. Exit 0 prints that version's release notes. Exit 1
+`<tag>` is `v` + the version, e.g. `v0.4.0`. Exit 0 prints that version's release notes. Exit 1
 says why the tag would be refused (a version that differs between plugins or between a plugin's
 `plugin.json` and `package.json`, a tag that is not `v<version>`, or no `CHANGELOG.md` section):
 fix it before tagging. The release workflow runs the same check on the pushed tag.
