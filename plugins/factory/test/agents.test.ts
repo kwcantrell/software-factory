@@ -292,10 +292,72 @@ test('check: no agent may pre-approve or run merge, approve or rework', withRepo
   }
   writeAgent(r, 'reviewer-security', withTools(`Read, Bash(${INVOCATION} status:*)`));
   r.ok(['agents', 'check']);
-  writeAgent(r, 'reviewer-security', text.replace('---\n\n', '---\n').replace(/^color: .*$/m, 'color: red\npermissionMode: bypassPermissions'));
-  onlyProblem(r, /permissionMode bypassPermissions skips the merge, approve and rework permission prompts/);
+  writeAgent(r, 'reviewer-security', text.replace(/^color: .*$/m, 'color: red\npermissionMode: bypassPermissions'));
+  onlyProblem(r, /permissionMode 'bypassPermissions' may skip the merge, approve and rework permission prompts/);
   writeAgent(r, 'reviewer-security', `${text}\nWhen you approve, run \`factory merge <job id>\` too.\n`);
   onlyProblem(r, /runs the human-only command factory merge/);
+}));
+
+test('check: the human gates hold whatever YAML form the frontmatter uses', withRepo((r) => {
+  const text = made(r, 'reviewer-security');
+  const withFrontmatter = (lines: string): string => text.replace(/^color: .*$/m, `color: red\n${lines}`);
+  // A block list, under tools or allowed-tools, quoted or not.
+  for (const lines of [
+    `allowed-tools:\n  - Bash(${INVOCATION} merge:*)`,
+    `allowed-tools:\n  - "Bash(${INVOCATION.replace(/"/g, '\\"')} merge:*)"`,
+    `allowed-tools:\n  - 'Bash(${INVOCATION} merge:*)'`,
+  ]) {
+    writeAgent(r, 'reviewer-security', withFrontmatter(lines));
+    onlyProblem(r, /frontmatter allowed-tools pre-approves the human-only command factory merge/);
+  }
+  // A flow list carried onto a continuation line.
+  writeAgent(r, 'reviewer-security', withFrontmatter(`allowed-tools: [Read,\n  Bash(${INVOCATION} approve:*)]`));
+  onlyProblem(r, /frontmatter allowed-tools pre-approves the human-only command factory approve/);
+  // Quoted permission modes, and modes not on the safe list (a block scalar included).
+  for (const mode of ['"bypassPermissions"', "'bypassPermissions'", 'auto', '>-\n  bypassPermissions']) {
+    writeAgent(r, 'reviewer-security', withFrontmatter(`permissionMode: ${mode}`));
+    onlyProblem(r, /frontmatter permissionMode '.*' may skip the merge, approve and rework permission prompts/);
+  }
+  for (const mode of ['default', '"plan"', 'acceptEdits', 'dontAsk']) {
+    writeAgent(r, 'reviewer-security', withFrontmatter(`permissionMode: ${mode}`));
+    r.ok(['agents', 'check']);
+  }
+  writeAgent(r, 'reviewer-security', withFrontmatter('"permissionMode": bypassPermissions'));
+  onlyProblem(r, /permissionMode 'bypassPermissions'/);
+  // Hooks could answer the prompts, so a station agent has none.
+  writeAgent(r, 'reviewer-security', withFrontmatter('hooks:\n  PreToolUse:\n    - matcher: Bash'));
+  onlyProblem(r, /frontmatter has hooks/);
+}));
+
+test('check: a rule cut short anywhere in the npx form is as wide as factory:*', withRepo((r) => {
+  const text = made(r, 'reviewer-behavior');
+  const withTools = (tools: string): string => text.replace(/^tools: .*$/m, `tools: ${tools}`);
+  const pathForm = INVOCATION.replace('${CLAUDE_PLUGIN_ROOT}', '/home/me/plugin');
+  for (const wide of [
+    'Bash(npx --yes:*)',
+    'Bash(npx --yes --offline *)',
+    'Bash(npx --yes --offline --loglevel=error --package=*)',
+    'Bash(npx --yes --offline --loglevel=error --package="/home/me/plu:*)',
+    `Bash(${pathForm}:*)`,
+    `Bash(${pathForm} m*)`,
+    'Bash(npx * merge *)',
+    'Bash(factory:*)',
+  ]) {
+    writeAgent(r, 'reviewer-behavior', withTools(`Read, ${wide}`));
+    onlyProblem(r, /frontmatter tools rule .* would pre-approve factory (merge|approve|rework)/);
+  }
+  writeAgent(r, 'reviewer-behavior', withTools(`Read, Bash(${pathForm} m*)`));
+  onlyProblem(r, /would pre-approve factory merge; fix/);
+  for (const narrow of [`Bash(${pathForm} status:*)`, 'Bash(npm test:*)', 'Bash(git diff:*)']) {
+    writeAgent(r, 'reviewer-behavior', withTools(`Read, ${narrow}`));
+    r.ok(['agents', 'check']);
+  }
+}));
+
+test('check: a quoted frontmatter name is the same name', withRepo((r) => {
+  const text = made(r, 'builder');
+  writeAgent(r, 'builder', text.replace(/^name: .*$/m, 'name: "factory-builder"'));
+  r.ok(['agents', 'check']);
 }));
 
 test('agents check does not write anything', withRepo((r) => {

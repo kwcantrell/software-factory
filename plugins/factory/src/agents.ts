@@ -93,16 +93,61 @@ export function render(st: Station): string {
   return fill(templateText(st.kind), { name: agentName(st.station), lens: st.lens ?? '', lens_focus: lensFocus });
 }
 
-/** `key: value` lines of a leading `---` block, or null when there is none. */
-function frontmatter(text: string): { fields: Record<string, string>; body: string } | null {
+/** A YAML scalar with one pair of matching surrounding quotes removed. */
+const unquote = (value: string): string => {
+  const v = value.trim();
+  return v.length >= 2 && (v[0] === '"' || v[0] === "'") && v.at(-1) === v[0] ? v.slice(1, -1) : v;
+};
+
+/**
+ * A leading `---` block: its top-level `key: value` pairs (key and value unquoted), every
+ * `Bash(...)` permission rule anywhere in it (block lists, flow lists, continuation lines) with the
+ * top-level key it sits under, and the body after it. Null when there is no such block.
+ */
+function frontmatter(
+  text: string,
+): { fields: Record<string, string>; rules: [string, string][]; body: string } | null {
   const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text);
   if (!m) return null;
   const fields: Record<string, string> = {};
+  const rules: [string, string][] = [];
+  let key = '';
   for (const line of (m[1] ?? '').split(/\r?\n/)) {
     const i = line.indexOf(':');
-    if (i > 0 && !/^\s/.test(line)) fields[line.slice(0, i).trim()] = line.slice(i + 1).trim();
+    if (i > 0 && !/^[\s-]/.test(line)) {
+      key = unquote(line.slice(0, i));
+      fields[key] = unquote(line.slice(i + 1));
+    }
+    // A double-quoted YAML string writes a rule's own quotes as \".
+    for (const rule of line.replace(/\\"/g, '"').match(/Bash\([^)]*\)/g) ?? []) rules.push([key, rule]);
   }
-  return { fields, body: text.slice(m[0].length) };
+  return { fields, rules, body: text.slice(m[0].length) };
+}
+
+/** Permission modes that keep the merge, approve and rework prompts (an absent key is `default`). */
+const SAFE_MODES = ['default', 'acceptEdits', 'plan', 'dontAsk'];
+
+/**
+ * The human-only commands a Bash permission rule would let run without a prompt. A rule's `*` (and a
+ * trailing `:*`) is a wildcard; the rule is tried against each human-only command as a station
+ * would write it: the npx form with this rule's own --package value (so a rule cut off inside the
+ * path still counts), with the plugin root placeholder, and bare `factory <command>`.
+ */
+function approvesHuman(inner: string): string[] {
+  const flat = (s: string): string => s.replace(/\s+/g, ' ').trim();
+  const glob = flat(inner.replace(/:\*$/, '*'));
+  const re = new RegExp(`^${glob.split('*').map((p) => p.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
+  const pkg = /--package=["']?([^"'\s*]*)/.exec(inner)?.[1];
+  const roots = ['${CLAUDE_PLUGIN_ROOT}', '/plugin', ...(pkg === undefined ? [] : [pkg, `${pkg}/plugin`])];
+  return HUMAN_ONLY.filter((c) =>
+    roots
+      .flatMap((root) => {
+        const npx = INVOCATION.replace('${CLAUDE_PLUGIN_ROOT}', root);
+        return [npx, npx.replace(`"${root}"`, root)];
+      })
+      .concat(['factory'])
+      .some((cli) => re.test(flat(`${cli} ${c} 001-job`))),
+  );
 }
 
 /**
@@ -134,21 +179,32 @@ export function checkAgent(file: string, stem: string, text: string): Problem[] 
   if (!fm.fields.description) add('frontmatter has no description', 'add a description: line saying what the station does');
 
   // The line's human gates: no agent may pre-approve merge, approve or rework, or bypass the prompt.
-  for (const [key, value] of Object.entries(fm.fields)) {
-    for (const rule of value.match(/Bash\([^)]*\)/g) ?? []) {
-      const inner = rule.slice('Bash('.length, -1).trim();
-      const human = HUMAN_ONLY.find((c) => new RegExp(`factory["']?\\s+${c}\\b`).test(inner));
-      const wide = /^(\*|:\*|npx(:\*|\s+\*))$/.test(inner) || /factory["']?\s*(:\*|\*)$/.test(inner);
-      if (human) {
-        add(`frontmatter ${key} pre-approves the human-only command factory ${human}`, `remove ${rule}`);
-      } else if (wide) {
-        add(`frontmatter ${key} rule ${rule} would pre-approve factory merge, approve and rework`, `remove ${rule}; a station needs no pre-approved factory command`);
-      }
+  // Every Bash(...) rule in the frontmatter counts, whatever key or YAML form it is written in.
+  for (const [key, rule] of fm.rules) {
+    const inner = rule.slice('Bash('.length, -1).trim();
+    const human = HUMAN_ONLY.find((c) => new RegExp(`factory["']?\\s+${c}\\b`).test(inner));
+    const approved = approvesHuman(inner);
+    if (human) {
+      add(`frontmatter ${key} pre-approves the human-only command factory ${human}`, `remove ${rule}`);
+    } else if (approved.length > 0) {
+      add(
+        `frontmatter ${key} rule ${rule} would pre-approve factory ${approved.join(', ').replace(/, (?=[a-z]+$)/, ' and ')}`,
+        `remove ${rule}; a station needs no pre-approved factory command`,
+      );
     }
   }
-  if (fm.fields.permissionMode === 'bypassPermissions') {
-    add('frontmatter permissionMode bypassPermissions skips the merge, approve and rework permission prompts', 'remove permissionMode');
+  const mode = fm.fields.permissionMode;
+  if (mode !== undefined && !SAFE_MODES.includes(mode)) {
+    add(
+      `frontmatter permissionMode '${mode}' may skip the merge, approve and rework permission prompts`,
+      `remove permissionMode, or use one of ${SAFE_MODES.join(', ')} on one line`,
+    );
   }
+  if ('hooks' in fm.fields) {
+    add('frontmatter has hooks, which could answer the merge, approve and rework prompts', 'remove hooks; a station needs none');
+  }
+  // A lint, not the boundary: indirection (`c=merge; factory $c`) gets past it. The PreToolUse hook
+  // (src/gate.ts) is what stops a station running a human-only command.
   for (const c of HUMAN_ONLY) {
     if (new RegExp(`factory["']?\\s+${c}\\b`).test(fm.body)) {
       add(`runs the human-only command factory ${c}`, `remove it: only a person runs factory ${c}`);
